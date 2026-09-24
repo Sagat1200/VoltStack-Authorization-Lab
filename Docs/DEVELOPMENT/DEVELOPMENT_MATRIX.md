@@ -17,7 +17,7 @@ El criterio del corte es conservador y se basa en evidencia visible en:
 
 ## Nota de corte
 
-Al corte actual, `Quantum/Authorization` ya dispone de un core minimo implementado y probado.
+Al corte actual, `Quantum/Authorization` ya dispone de un core minimo implementado, mas una primera capa declarativa integrada con controllers, routing y manejo de errores HTTP.
 
 Por tanto:
 
@@ -35,9 +35,9 @@ Por tanto:
 
 | Estado           | Cantidad |
 | ---------------- | -------: |
-| Operativo        |        5 |
-| Parcial          |       19 |
-| Pendiente        |        8 |
+| Operativo        |       10 |
+| Parcial          |       15 |
+| Pendiente        |        7 |
 | Total documentos |       32 |
 
 ## Matriz 01-32
@@ -47,20 +47,20 @@ Por tanto:
 | 01 | Authorization Architecture | Parcial | arquitectura objetivo detallada en `Docs/01...`; infraestructura adyacente ya presente en `Controllers/Security`, `Metadata` y `Application.php` | falta implementacion propia de `Quantum/Authorization` |
 | 02 | Authorization Manager And Core Engine | Operativo | existen `AuthorizationManager`, `AuthorizationRequestFactory`, `AuthorizationRequest`, `DecisionResult`, `DecisionManager` y flujo `check/cannot/decide/authorize` dentro de `Quantum/Authorization` | falta planner formal, extensibilidad avanzada y mayor cobertura de integracion |
 | 03 | Authorization Request Context And Subject Model | Operativo | existen `AuthorizationRequest`, `AuthorizationContext`, `SubjectDescriptor`, `SubjectResolver`, `Principal`, `AnonymousPrincipal` y `PrincipalResolver` | falta enriquecer el modelo para tenancy, relationships y contexto avanzado |
-| 04 | Policy System And Policy Contracts | Parcial | `ControllerSecurityPolicy`, `ControllerSecurityPolicyInterface`, atributos `Policies`, `PolicyClass` | falta sistema de policies general para resources, classes y gates fuera de controllers |
-| 05 | Policy Registry Discovery And Resolution System | Parcial | existen `PolicyRegistry` y resolucion por clase/jerarquia en `Quantum/Authorization`; `MetadataProviderRegistry` y `MetadataSchemaRegistry` siguen siendo base reusable | falta discovery automatico, compilacion y manifests |
-| 06 | Policy Dispatcher Invocation And Result Normalization System | Parcial | existe `PolicyDispatcher` con dispatch por nombre de ability, `before()` opcional y normalizacion de `bool/null/DecisionResult` | falta pipeline mas completo, contratos formales y adaptadores declarativos |
+| 04 | Policy System And Policy Contracts | Operativo | existen `PolicyInterface`, `SupportsAuthorizationRequest`, atributos `#[PolicyFor]` y `#[HandlesAbility]`, mas policies classicas por metodo en `Quantum/Authorization/Policy/*` | falta planner/pipeline formal para composicion avanzada |
+| 05 | Policy Registry Discovery And Resolution System | Parcial | `PolicyRegistry` ya soporta multiples policies por subject, resolucion por jerarquia, carga desde config y discovery por `#[PolicyFor]` | falta discovery automatico global, compilacion y manifests |
+| 06 | Policy Dispatcher Invocation And Result Normalization System | Operativo | `PolicyDispatcher` ya soporta `before()`, `PolicyInterface`, `SupportsAuthorizationRequest`, `#[HandlesAbility]` y normalizacion de `bool/null/DecisionResult` | falta pipeline mas profundo, hooks y telemetria dedicada |
 | 07 | Gate System And Ability Registry | Operativo | existen `GateRegistry`, `Ability`, `AbilityRegistry`, `AbilityNormalizer` y pruebas sobre gates con principal bound y principal resuelto desde Auth | falta aliases, manifests y governance de abilities |
 | 08 | Decision Manager Voters And Strategy System | Operativo | existe `DecisionManager` con estrategia base `default deny`; `AuthorizationManager` agrega resultados de gates/policies y opera en fail-closed | falta sistema de voters/strategies intercambiables y planner formal |
-| 09 | Authorization Planner And Policy Pipeline System | Pendiente | existe composicion de policies, pero no planner ni pipeline general compilable | falta separar formalmente planning de execution |
-| 10 | Authorization Attributes And Declarative Metadata System | Parcial | atributos `AuthenticationRequired`, `Permissions`, `Policies`, `PolicyClass`, `TenantRequired`; subsistema `Quantum/Metadata` | falta metadata declarativa propia de Authorization y su compilacion unificada |
-| 11 | Controller Route And Action Authorization Integration System | Parcial | `Controllers/Security` ya se integra con dispatcher, metadata, contexto auth y decision engine | falta adapter formal desde controllers/routing hacia `Quantum/Authorization` |
+| 09 | Authorization Planner And Policy Pipeline System | Parcial | existen `AuthorizationPlannerInterface`, `AuthorizationPlanner` y separacion formal entre request creation, planning y finalizacion de decisiones; `DecisionManager` ya aplica estrategia configurable | falta pipeline compilable, enrichment stages y manifests de metadata |
+| 10 | Authorization Attributes And Declarative Metadata System | Operativo | existen `#[Authorize]`, `#[PublicAccess]`, DSL `Route::authorize()` y `Route::publicAccess()`, mas proyeccion inicial de metadata dentro de `ControllerEngine` | falta compilacion unificada sobre `Quantum/Metadata` y manifests |
+| 11 | Controller Route And Action Authorization Integration System | Operativo | `ControllerEngine` ya proyecta metadata declarativa y de ruta hacia `AuthorizationManager`, resuelve subjects desde argumentos del controller y puede saltar enforcement con `publicAccess` | falta convivencia mas profunda con `Controllers/Security` y rollout a mas superficies |
 | 12 | Role Permission RBAC ABAC And ReBAC Integration System | Parcial | policies compuestas y `SecurityAttributes` permiten roles, permissions y atributos simples; tests de expresiones en `PolicyCompositionTest.php` | falta modelo real de RBAC/ABAC/ReBAC, repositorios y evaluadores |
 | 13 | Multi Tenant Authorization And Data Isolation System | Parcial | `TenantRequired`, `TenantIdentity`, validaciones de tenant en `ControllerSecurityDecisionEngine` | falta tenant isolation como subsistema general de Authorization |
 | 14 | Authorization Cache Memoization And Decision Reuse System | Parcial | `SecurityDecisionCache`, request-scoped cache por clave y pruebas de worker safety | falta memoization y cache del modulo con fingerprints y versionado de contexto |
 | 15 | Authorization Audit Observability Tracing And Explainability System | Pendiente | no existe trazabilidad ni auditoria propia de Authorization | falta trace, audit y explicabilidad del modulo |
-| 16 | Authorization Failure Error Denial And Exception Handling System | Parcial | `AuthorizationDeniedException`, `AuthenticationRequiredException`, `SecurityInfrastructureFailureException`, fail-closed y challenge en controllers | falta jerarquia de excepciones del modulo Authorization y mapping transversal |
-| 17 | Authorization Testing Verification And Security Assurance System | Parcial | ahora existen `tests/Unit/AuthorizationManagerTest.php` y `tests/Feature/AuthorizationIntegrationTest.php`, ademas de la infraestructura previa en controllers | falta ampliar la suite hacia metadata, planners, errores y compatibilidad con controllers |
+| 16 | Authorization Failure Error Denial And Exception Handling System | Operativo | existen `AuthorizationDeniedException`, `AuthorizationChallengeException`, `AuthorizationEvaluationException`, `AuthorizationExceptionMapper` y registro en `ExceptionHandler` con respuestas `401/403/500` coherentes | falta enriquecer telemetria y contratos de error del planner futuro |
+| 17 | Authorization Testing Verification And Security Assurance System | Parcial | la suite ya cubre manager, helpers, policies desde config, metadata declarativa en `ControllerEngine` y mapping HTTP en `ExceptionHandlingTest.php` y `QuantumExceptionHandlerTest.php` | falta ampliar cobertura a planner, metadata compilada y escenarios multi-surface |
 | 18 | Authorization Compilation Optimization And Runtime Performance System | Parcial | `Quantum/Metadata`, bindings en `Application.php`, budget de evaluacion, cache por request, orientación a runtime persistente | falta compilador, manifest y hot path propio del modulo |
 | 19 | Authorization Extensibility Plugin Provider And Custom Evaluator System | Parcial | registro de policies lazy, expresiones compuestas, infraestructura de metadata extensible | falta modelo formal de plugins, evaluators y extension points del modulo |
 | 20 | Authorization Delegation Impersonation Capabilities And Service To Service System | Parcial | `PrincipalType` en controllers ya contempla `service`, `api_client`, `system`, `impersonated_user` | falta delegacion, capabilities, envelopes y evaluadores reales |
@@ -83,10 +83,12 @@ Por tanto:
 
 1. un core minimo real en `Quantum/Authorization`,
 2. gates, abilities, request model y decision model funcionales,
-3. bootstrap, config, facade y helpers del modulo,
+3. bootstrap, config, facade, helpers, planner y mapper de errores del modulo,
 4. integración con Authentication para resolver principal/contexto,
-5. pruebas unitarias y feature iniciales del subsistema,
-6. un subsistema fuerte de `Controllers/Security` y metadata reutilizable alrededor.
+5. metadata declarativa inicial con atributos y DSL de rutas,
+6. integración inicial con `ControllerEngine`,
+7. pruebas unitarias y feature ampliadas del subsistema,
+8. un subsistema fuerte de `Controllers/Security` y metadata reutilizable alrededor.
 
 ### Lo que no existe todavia
 
@@ -100,9 +102,8 @@ Por tanto:
 
 ### Prioridad alta
 
-1. `02`, `03`, `07`, `08`, `25`
-2. `04`, `05`, `06`, `09`, `10`
-3. `11`, `16`, `17`, `18`, `32`
+1. `02`, `03`, `04`, `06`, `07`, `08`, `10`, `11`, `16`, `25`
+2. `05`, `09`, `17`, `18`, `32`
 
 Motivo:
 

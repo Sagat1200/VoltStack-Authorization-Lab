@@ -20,11 +20,15 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `SubjectDescriptor` y `SubjectResolver`,
 - `AuthorizationContext` y `AuthorizationContextFactory`,
 - `AuthorizationRequest` y `AuthorizationRequestFactory`,
+- `AuthorizationPlannerInterface` y `AuthorizationPlanner`,
 - `Decision`, `DecisionResult` y `DecisionManager`,
 - `AuthorizationManager`,
 - `GateRegistry`,
 - `PolicyRegistry` y `PolicyDispatcher`,
+- atributos `#[Authorize]` y `#[PublicAccess]`,
+- contracts y atributos declarativos de policy,
 - `AuthorizationServiceProvider`,
+- `AuthorizationExceptionMapper`,
 - facade `Quantum\Facades\Authorization`,
 - helpers globales `authorization()`, `can()`, `cannot()` y `authorize()`.
 
@@ -337,7 +341,7 @@ No continuar el desarrollo con estos patrones:
 
 ### Fase sugerida inmediata
 
-`DV-AUTHZ-003: Policies, Registry, Metadata E Integracion Inicial`
+`DV-AUTHZ-004: Planner, Metadata Compilable Y Cierre De V1 Conectada`
 
 Documentos objetivo:
 
@@ -350,8 +354,8 @@ Documentos objetivo:
 
 ### Entregables minimos sugeridos
 
-1. introducir contratos explicitos de policy,
-2. pasar de registry manual a discovery/configuracion mas formal,
-3. definir metadata declarativa propia de Authorization apoyada en `Quantum/Metadata`,
-4. cerrar una primera integracion entre controllers/routing y `AuthorizationManager`,
-5. ampliar pruebas hacia flows de integracion y denegacion observable.
+1. enriquecer el planner ya abierto hacia un pipeline mas expresivo,
+2. mover discovery/configuracion hacia una base compilable o manifestable,
+3. consolidar metadata declarativa sobre infraestructura reusable,
+4. ampliar la convergencia entre `Controllers/Security` y `Quantum/Authorization`,
+5. ampliar pruebas y trazabilidad de decisiones/errores.

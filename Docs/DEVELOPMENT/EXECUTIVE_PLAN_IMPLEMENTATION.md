@@ -20,7 +20,9 @@ En `vendor/voltstack/framework/src/Quantum/Authorization` ya existen:
 - request/context model,
 - decision model,
 - gates y abilities,
-- policy registry/dispatcher minimo,
+- policy registry/dispatcher declarativo inicial,
+- atributos y contracts de policies,
+- mapper de errores del modulo,
 - provider y bootstrap base.
 
 ### 2. Siguen existiendo piezas reutilizables de alto valor
@@ -45,9 +47,9 @@ El framework si dispone de infraestructura cercana que debe usarse como base y n
 
 Conclusión:
 
-- el trabajo fundacional ya esta abierto,
-- y el siguiente movimiento debe consolidar policies, metadata e integracion,
-- no reiniciar la base del modulo.
+- el trabajo fundacional ya quedo aterrizado,
+- la integracion declarativa inicial ya esta abierta,
+- y el siguiente movimiento debe consolidar planner, metadata compilable y cierre de V1 conectada.
 
 ## Objetivo del primer cierre real
 
@@ -173,8 +175,8 @@ Quantum/Authorization
 - Fase 2: completada en version minima
 - Fase 3: completada en version minima manual
 - Fase 4: completada en version minima
-- Fase 5: siguiente foco ejecutivo
-- Fase 6: pendiente
+- Fase 5: completada en version inicial conectada
+- Fase 6: siguiente foco ejecutivo
 
 ## Fases ejecutivas
 
@@ -356,6 +358,19 @@ Primero:
 3. error del modulo se representa sin acoplar el core a HTTP,
 4. no hay reevaluacion incoherente entre requests.
 
+### Estado actual
+
+- completada en una primera version usable:
+  - existen `#[Authorize]`, `#[PublicAccess]`, `Route::authorize()` y `Route::publicAccess()`,
+  - `ControllerEngine` ya proyecta metadata declarativa al `AuthorizationManager`,
+  - y `AuthorizationExceptionMapper` ya representa denegaciones y challenges en HTTP.
+
+Adicionalmente, el modulo ya abrio una base de planner formal:
+
+- `AuthorizationManager` ya delega la evaluacion a `AuthorizationPlanner`,
+- `DecisionManager` ya aplica `default_strategy`,
+- y el motor ya diferencia `fail_closed` de `fail_open` ante fallos de evaluadores.
+
 ## Fase 6 - Cierre de V1 minima
 
 ### Objetivo
@@ -461,23 +476,28 @@ Una fase se considera realmente cerrada solo si:
 
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-003
+### DV-AUTHZ-004
 
 Alcance sugerido:
 
-- formalizar el sistema de policies,
-- ampliar registry/dispatcher hacia metadata y discovery,
-- integrar `AuthorizationManager` con controllers y routing de forma incremental.
+- definir el primer planner/pipeline formal,
+- mover discovery/metadata hacia una capa compilable o manifestable,
+- ampliar la convergencia entre `Controllers/Security` y `Quantum/Authorization`.
+
+Estado del corte:
+
+- el primer planner formal ya existe en version minima,
+- por lo que el siguiente trabajo debe enriquecer pipeline, metadata compilable y trazabilidad.
 
 Entregables minimos:
 
-1. contracts de policy,
-2. discovery/configuracion inicial,
-3. metadata declarativa de Authorization,
-4. adapter hacia controllers/routing,
-5. pruebas de integracion sobre denegacion y ejecucion,
+1. planner/pipeline de evaluacion,
+2. discovery/configuracion compilable,
+3. metadata declarativa soportada por infraestructura reusable,
+4. mayor integracion transversal del framework,
+5. pruebas ampliadas de integracion y errores,
 6. actualizacion de matriz y bitacora.
 
 Resultado esperado:
 
-- VoltStack pasa de un core minimo a una V1 ya conectada con el flujo declarativo del framework.
+- VoltStack pasa de una V1 conectada inicial a una V1 mas estable, compilable y lista para rollout incremental.
