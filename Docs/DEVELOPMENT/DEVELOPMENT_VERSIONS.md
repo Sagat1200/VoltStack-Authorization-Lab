@@ -205,31 +205,38 @@ Hoy Authorization se encuentra en esta situacion:
 2. separar el manager de la agregacion inline de gates/policies,
 3. hacer efectiva la estrategia `default_strategy`,
 4. hacer explicita la semantica `fail_closed` y `fail_open` ante fallos de evaluadores,
-5. ampliar la validacion unitaria y de regresion del subsistema.
+5. extraer un pipeline minimo por stages para gates y policies,
+6. ampliar la validacion unitaria y de regresion del subsistema.
 
 **Evidencia**
 
 - `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationPlannerInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationEvaluationStageInterface.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationPlanner.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/GateAuthorizationStage.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/PolicyAuthorizationStage.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationManager.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Decision/DecisionManager.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationPlannerTest.php`
 - `vendor/voltstack/framework/tests/Unit/AuthorizationManagerTest.php`
 
 **Resultado operativo parcial**
 
 - Authorization ya no agrega evaluadores inline dentro del manager,
 - existe una primera separacion formal entre request normalization, planning y final decision,
+- el planner ya orquesta un pipeline minimo con stages de `gates` y `policies`,
 - y la configuracion `authorization.default_strategy` / `authorization.fail_closed` ya altera el comportamiento real del engine.
 
 **Validacion ejecutada**
 
 - `vendor\bin\phpunit tests\Unit\AuthorizationManagerTest.php`
+- `vendor\bin\phpunit tests\Unit\AuthorizationPlannerTest.php tests\Unit\AuthorizationManagerTest.php`
 - `vendor\bin\phpunit tests\Unit\ControllerEngineTest.php tests\Unit\QuantumExceptionHandlerTest.php tests\Feature\AuthorizationIntegrationTest.php tests\Feature\ExceptionHandlingTest.php`
 
 **Gap natural siguiente**
 
-- enriquecer el planner con etapas/pipeline mas expresivo,
+- enriquecer el planner con stages de enrichment/metadata mas expresivos,
 - acercar metadata declarativa a una capa compilable,
 - y ampliar la observabilidad/trazabilidad de la evaluacion.
 

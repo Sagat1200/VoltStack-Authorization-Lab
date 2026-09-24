@@ -21,6 +21,7 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `AuthorizationContext` y `AuthorizationContextFactory`,
 - `AuthorizationRequest` y `AuthorizationRequestFactory`,
 - `AuthorizationPlannerInterface` y `AuthorizationPlanner`,
+- stages explicitos de gates y policies dentro del planner,
 - `Decision`, `DecisionResult` y `DecisionManager`,
 - `AuthorizationManager`,
 - `GateRegistry`,

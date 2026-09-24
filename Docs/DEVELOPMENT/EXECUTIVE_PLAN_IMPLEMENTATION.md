@@ -368,6 +368,7 @@ Primero:
 Adicionalmente, el modulo ya abrio una base de planner formal:
 
 - `AuthorizationManager` ya delega la evaluacion a `AuthorizationPlanner`,
+- el planner ya compone stages explicitos para gates y policies,
 - `DecisionManager` ya aplica `default_strategy`,
 - y el motor ya diferencia `fail_closed` de `fail_open` ante fallos de evaluadores.
 
@@ -487,6 +488,7 @@ Alcance sugerido:
 Estado del corte:
 
 - el primer planner formal ya existe en version minima,
+- ya existe un pipeline minimo por stages,
 - por lo que el siguiente trabajo debe enriquecer pipeline, metadata compilable y trazabilidad.
 
 Entregables minimos:
