@@ -206,38 +206,64 @@ Hoy Authorization se encuentra en esta situacion:
 3. hacer efectiva la estrategia `default_strategy`,
 4. hacer explicita la semantica `fail_closed` y `fail_open` ante fallos de evaluadores,
 5. extraer un pipeline minimo por stages para gates y policies,
-6. ampliar la validacion unitaria y de regresion del subsistema.
+6. proyectar metadata de Authorization sobre `Quantum/Metadata`,
+7. extraer un `AuthorizationMetadataResolver` reusable para desacoplar el engine de controllers,
+8. introducir enrichment contextual previo al pipeline usando metadata declarativa,
+9. normalizar metadata en un payload con fingerprint estable para preparar manifests/compilation,
+10. ampliar la validacion unitaria y de regresion del subsistema.
 
 **Evidencia**
 
 - `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationPlannerInterface.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationEvaluationStageInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationMetadataResolverInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationRequestEnricherInterface.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationPlanner.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/GateAuthorizationStage.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/PolicyAuthorizationStage.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationManager.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/Decision/DecisionManager.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadata.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationRequirement.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadataPayload.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadataResolver.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/MetadataAuthorizationContextEnricher.php`
 - `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/Providers/AttributeMetadataProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/Providers/RouteMetadataProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/MetadataEngine.php`
+- `vendor/voltstack/framework/src/Platform/Application.php`
+- `vendor/voltstack/framework/src/Quantum/Controllers/ControllerEngine.php`
+- `vendor/voltstack/framework/tests/Unit/MetadataAuthorizationContextEnricherTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationMetadataResolverTest.php`
+- `vendor/voltstack/framework/tests/Unit/MetadataEngineTest.php`
 - `vendor/voltstack/framework/tests/Unit/AuthorizationPlannerTest.php`
 - `vendor/voltstack/framework/tests/Unit/AuthorizationManagerTest.php`
 
 **Resultado operativo parcial**
 
 - Authorization ya no agrega evaluadores inline dentro del manager,
-- existe una primera separacion formal entre request normalization, planning y final decision,
+- existe una primera separacion formal entre request normalization, enrichment, planning y final decision,
 - el planner ya orquesta un pipeline minimo con stages de `gates` y `policies`,
+- `#[Authorize]`, `#[PublicAccess]` y `Route::authorize()/publicAccess()` ya se proyectan como metadata reusable del framework,
+- `ControllerEngine` ya consume un resolver propio de Authorization en vez de depender de los detalles de `MetadataEngine`,
+- gates y policies ya pueden recibir metadata declarativa contextual a traves de `AuthorizationContext`,
+- la metadata ya cuenta con un payload normalizado y `fingerprint` estable para evolucionar hacia manifests,
 - y la configuracion `authorization.default_strategy` / `authorization.fail_closed` ya altera el comportamiento real del engine.
 
 **Validacion ejecutada**
 
-- `vendor\bin\phpunit tests\Unit\AuthorizationManagerTest.php`
+- `vendor\bin\phpunit tests\Unit\MetadataEngineTest.php tests\Unit\AuthorizationPlannerTest.php tests\Unit\AuthorizationManagerTest.php`
+- `vendor\bin\phpunit tests\Unit\AuthorizationMetadataResolverTest.php tests\Unit\MetadataEngineTest.php tests\Unit\AuthorizationPlannerTest.php tests\Unit\AuthorizationManagerTest.php`
+- `vendor\bin\phpunit tests\Unit\MetadataAuthorizationContextEnricherTest.php tests\Unit\AuthorizationMetadataResolverTest.php tests\Unit\MetadataEngineTest.php tests\Unit\AuthorizationPlannerTest.php tests\Unit\AuthorizationManagerTest.php`
+- `vendor\bin\phpunit tests\Unit\AuthorizationMetadataResolverTest.php tests\Unit\MetadataAuthorizationContextEnricherTest.php tests\Unit\AuthorizationPlannerTest.php tests\Unit\AuthorizationManagerTest.php`
 - `vendor\bin\phpunit tests\Unit\AuthorizationPlannerTest.php tests\Unit\AuthorizationManagerTest.php`
 - `vendor\bin\phpunit tests\Unit\ControllerEngineTest.php tests\Unit\QuantumExceptionHandlerTest.php tests\Feature\AuthorizationIntegrationTest.php tests\Feature\ExceptionHandlingTest.php`
 
 **Gap natural siguiente**
 
-- enriquecer el planner con stages de enrichment/metadata mas expresivos,
-- acercar metadata declarativa a una capa compilable,
+- materializar manifests/compiled payloads a partir del fingerprint y el payload normalizado,
+- aprovechar la metadata ya proyectada para una capa compilable/manifests,
 - y ampliar la observabilidad/trazabilidad de la evaluacion.
 
 ## Siguiente corte recomendado

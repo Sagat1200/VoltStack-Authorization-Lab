@@ -369,6 +369,10 @@ Adicionalmente, el modulo ya abrio una base de planner formal:
 
 - `AuthorizationManager` ya delega la evaluacion a `AuthorizationPlanner`,
 - el planner ya compone stages explicitos para gates y policies,
+- la metadata declarativa de Authorization ya se proyecta sobre `Quantum/Metadata`,
+- el modulo ya dispone de un `AuthorizationMetadataResolver` reusable,
+- el planner ya soporta enrichment contextual previo a sus stages,
+- la metadata normalizada ya dispone de un payload con fingerprint estable,
 - `DecisionManager` ya aplica `default_strategy`,
 - y el motor ya diferencia `fail_closed` de `fail_open` ante fallos de evaluadores.
 
@@ -489,6 +493,7 @@ Estado del corte:
 
 - el primer planner formal ya existe en version minima,
 - ya existe un pipeline minimo por stages,
+- la metadata declarativa ya puede resolverse por `MetadataEngine`,
 - por lo que el siguiente trabajo debe enriquecer pipeline, metadata compilable y trazabilidad.
 
 Entregables minimos:
