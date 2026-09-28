@@ -27,6 +27,14 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `AuthorizationManager`,
 - `AuthorizationMetadataResolver`,
 - `AuthorizationRequirement` y `AuthorizationMetadataPayload`,
+- `AuthorizationMetadataPayloadFactory` para hidratacion desde array,
+- `AuthorizationManifestStoreInterface` con contratos `has/get/put/forget/clear`,
+- `AuthorizationManifestEntry` como DTO inmutable de almacenamiento,
+- `InMemoryAuthorizationManifestStore` y `FilesystemAuthorizationManifestStore`,
+- configuracion `authorization.manifest.enabled` y `authorization.manifest.path`,
+- `ManifestRequirementsEnforcementStage` para enforcement directo desde metadata de manifest,
+- fingerprint visible en `DecisionResult::metadataFingerprint()` propagado desde planner,
+- comandos CLI `authz:manifest:compile` y `authz:manifest:clear`,
 - `GateRegistry`,
 - `PolicyRegistry` y `PolicyDispatcher`,
 - atributos `#[Authorize]` y `#[PublicAccess]`,
@@ -340,27 +348,43 @@ No continuar el desarrollo con estos patrones:
 5. acoplar el core a HTTP o al ORM,
 6. tratar `ABSTAIN` como `ALLOW`,
 7. abrir approval, risk o delegation antes de tener core y policies,
-8. considerar la arquitectura "implementada" solo porque existe un árbol de carpetas.
+8. considerar la arquitectura "implementada" solo porque existe un árbol de carpetas,
+9. activar `evaluateRequirementsConcretely=true` POR DEFECTO (DEBE ser opt-in via config para no romper V1 existente),
+10. acceder a propiedades privadas de clases VO/contracts (ej: `RouteDefinition->action`) — siempre usar getters públicos (`action()`),
+11. en bridges Security ↔ Planner retornar decision forzada cuando no hay requirements presentes — retornar `null` para que el Hardened engine continue intacto.
 
 ## Siguiente ejecucion recomendada
 
 ### Fase sugerida inmediata
 
-`DV-AUTHZ-004: Planner, Metadata Compilable Y Cierre De V1 Conectada`
+`DV-AUTHZ-007: Explainability, Memoization De Permisos E Integración Authority ↔ Manager`
 
 Documentos objetivo:
 
-- `04_POLICY_SYSTEM_AND_POLICY_CONTRACTS.md`
-- `05_POLICY_REGISTRY_DISCOVERY_AND_RESOLUTION_SYSTEM.md`
-- `06_POLICY_DISPATCHER_INVOCATION_AND_RESULT_NORMALIZATION_SYSTEM.md`
-- `09_AUTHORIZATION_PLANNER_AND_POLICY_PIPELINE_SYSTEM.md`
-- `10_AUTHORIZATION_ATTRIBUTES_AND_DECLARATIVE_METADATA_SYSTEM.md`
-- `11_CONTROLLER_ROUTE_AND_ACTION_AUTHORIZATION_INTEGRATION_SYSTEM.md`
+- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md` (early-gate authority ↔ AuthorizationManager.check)
+- `14_AUTHORIZATION_CACHE_MEMOIZATION_AND_DECISION_REUSE_SYSTEM.md` (cache effectivePermissions)
+- `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md` (wiring bridge en provider)
+- `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md` (ABAC runtime evaluator)
+- `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md`
 
 ### Entregables minimos sugeridos
 
-1. enriquecer el planner ya abierto hacia un pipeline mas expresivo,
-2. mover discovery/configuracion hacia una base compilable o manifestable,
-3. consolidar metadata declarativa sobre infraestructura reusable,
-4. ampliar la convergencia entre `Controllers/Security` y `Quantum/Authorization`,
-5. ampliar pruebas y trazabilidad de decisiones/errores.
+1. método `AuthorizationDecisionPlan::explain(): array` con árbol por stage + reason code + metadata,
+2. cache memoization `effectivePermissionsForPrincipal` scoped-request por clave `(principalId,scope,tenantId)` con invalidacion por cambio de grants,
+3. integración `AuthorizationManager::check()` con opt-in early-gate `authorization.authority.enabled` (sin planner, solo grants/denials upfront),
+4. integración wiring del `ControllerSecurityPlannerBridge` en `AuthorizationServiceProvider` bajo config flag opcional `authorization.security_bridge.enabled=false` (default off),
+5. tests unitarios de explain + memoization + early-gate authority en AuthorizationManager (10-15 tests),
+6. convergencia ABAC runtime evaluador condicional sobre `AttributeDefinition` constraints pattern/min-max/enum/required.
+
+## Corte anterior ejecutado
+
+### DV-AUTHZ-006 — CERRADO (100%)
+
+Entregado en este ciclo:
+
+1. **Fix warning array-to-string en CompileCommand línea 89**: nuevo helper `formatActionForOutput()` normaliza action callable `[Class,method]` a `Class::method` antes de sprintf.
+2. **12 tests commands CLI `authz:manifest:compile|clear`**: metadata command, empty routes → exit 0, persist con fingerprint, `--dry-run` no toca store, `--verbose` reports requirements/fp/requirements count, skip routes que throw resolver o devuelven fp=null, clear retorna entries count (7 → 0), clear exception → exit 1 stderr.
+3. **Tests workaround Commands final**: escribir `bootstrap/app.php` temporal que devuelve `$GLOBALS['__volt_authz_test_app']`; Store/Resolver Spies anonymous con ReflectionProperty buffers privados Output.
+4. **Bridge mínimo Security ↔ Planner**: `Quantum/Authorization/Bridges/ControllerSecurityPlannerBridge::tryEvaluate(SecurityEvaluationRequest): ?SecurityDecision`; retorna `null` si no hay `authorization_requirements` o `permissions` en metadata → HardenedEngine continua sin tocar; si hay requirements invoca `AuthorizationManager::decide()` y mapea `DecisionResult → SecurityDecision` (Allow/Deny/Abstain/Challenge) con obligations `requirements + fingerprint`; mapea `SecurityPrincipal` → `Quantum/Authorization/Principal` con enum PrincipalType compatible.
+5. **5 tests bridge**: null-when-empty, allow-when-gate-match-requirements, deny-fail-closed-when-no-match, fallback metadata.permissions, fingerprint propagado en obligations.
+6. **Regresión OK**: 107 tests Unit (393 assertions) + 74 tests Feature autorizacion+security (901 assertions) → exit 0 salvo 1 error pre-existente `AuthManager::password_expired` no relacionado.

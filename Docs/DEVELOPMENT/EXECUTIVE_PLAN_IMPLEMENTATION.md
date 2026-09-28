@@ -23,7 +23,15 @@ En `vendor/voltstack/framework/src/Quantum/Authorization` ya existen:
 - policy registry/dispatcher declarativo inicial,
 - atributos y contracts de policies,
 - mapper de errores del modulo,
-- provider y bootstrap base.
+- provider y bootstrap base,
+- planner formal con enrichers y stages,
+- `AuthorizationMetadataResolver` con projection a `Quantum/Metadata`,
+- `AuthorizationMetadataPayload` normalizado con fingerprint estable,
+- `AuthorizationManifestStoreInterface` con stores InMemory y Filesystem,
+- configuracion `authorization.manifest.enabled` y `authorization.manifest.path`,
+- `ManifestRequirementsEnforcementStage` como enforcement temprano,
+- fingerprint visible en `DecisionResult::metadataFingerprint()`,
+- y commands CLI `authz:manifest:compile` + `authz:manifest:clear` registrados via `commands()` del provider.
 
 ### 2. Siguen existiendo piezas reutilizables de alto valor
 
@@ -376,33 +384,104 @@ Adicionalmente, el modulo ya abrio una base de planner formal:
 - `DecisionManager` ya aplica `default_strategy`,
 - y el motor ya diferencia `fail_closed` de `fail_open` ante fallos de evaluadores.
 
-## Fase 6 - Cierre de V1 minima
+Adicionalmente, el corte DV-AUTHZ-005 ya materializo el siguiente nivel de madurez:
 
-### Objetivo
+- `ManifestRequirementsEnforcementStage` ejecuta enforcement temprano directamente sobre metadata del manifest (public→ALLOW, ability no declarada→DENY/ABSTAIN),
+- todos los `DecisionResult` del planner ya llevan `metadataFingerprint()` visible cuando el contexto trae fingerprint del manifest,
+- commands `authz:manifest:compile` y `authz:manifest:clear` quedan descubiertos automaticamente via `AuthorizationServiceProvider::commands()`,
+- y el pipeline de stages se ordena `[manifest_requirements, gates, policies]` para maximizar early returns.
 
-Declarar una primera version util y segura del Authorization Engine.
+### Estado actual - DV-AUTHZ-006 (CERRADO al 100%)
 
-### Entregables
+**Material nuevo incorporado en runtime:**
 
-1. `AuthorizationManager` usable,
-2. modelado canonico del request,
-3. policies y gates minimos,
-4. bootstrap y config propios,
-5. integracion inicial con framework,
-6. pruebas base del subsistema,
-7. actualizacion de matriz y bitacora.
+1. `Value Objects` RBAC/ABAC en `Quantum/Authorization/Authority/*`:
+   - `Permission` single-string name + wildcard matching (`admin:*` matches `admin:read`),
+   - `Role` named bag con deduplicacion de permisos por nombre,
+   - `Scope` jerárquico `org:ws:proj` con `contains()`, `parent()`, wildcard `*`, global scope,
+   - `AttributeDefinition` typed ABAC schema (bool/string/int/float/array/enum/any) con constraints pattern/min-max/enum/required/default.
+2. `AuthorityRepositoryInterface` + `InMemoryAuthorityRepository`:
+   - seed desde config `authorization.authority.grants` shape `{principal_id, scope, roles, permissions}`,
+   - herencia upward por scope (while loop parent()) para colectar grants ascendentes,
+   - métodos `hasPermission`, `hasRole`, `effectivePermissionsForPrincipal`, `effectiveRolesForPrincipal`, `attributesForPrincipal`.
+3. `ManifestRequirementsEnforcementStage` ampliado:
+   - constructor backward-compatible: nuevos params `authorityRepository=null`, `evaluateRequirementsConcretely=false` POR DEFECTO,
+   - `evaluateRequirementsConcretely=false` → whitelist filter legacy (downstream gates/policies) sin regression V1,
+   - `evaluateRequirementsConcretely=true` (opt-in) → `normalizedMatchedRequirements` + `evaluateConcretelyEachMatchedRequirement()` con `effect=deny` gana siempre sobre grants,
+   - reason codes nuevos: `manifest_requirement_granted_by_authority`, `manifest_requirement_not_granted_by_authority`, `manifest_requirement_explicit_deny`.
+4. Wiring provider:
+   - defaults `authorization.authority.enabled=true`, `evaluate_requirements_concretely=false` (opt-in), `grants=[]`,
+   - `registerAuthorityRepository()` singleton condicional sobre enabled,
+   - Manifest stage wiring pasa 3 params con fallback correcto.
+5. RouteDefinition + CompileCommand fixes:
+   - CompileCommand usa getter `$route->definition()->action()` NO propiedad privada (fix de acceso prohibido en tests),
+   - `formatActionForOutput(?ControllerDefinition): string` nuevo helper normaliza action callable `[Class,method]` a `Class::method` para sprintf sin warnings.
+6. Commands CLI `authz:manifest:*` tests completados:
+   - `AuthorizationManifestCommandsTest` 12 tests (metadata command name/category/aliases, empty routes 0, persist metadata con fingerprint, `--dry-run` no llama store.put, `--verbose` imprime fp+requirements, skip routes con throw/no-fp, clear entries count=7, clear empty=0, clear dry-run no-op, clear verbose reporta store, clear exception exit 1),
+   - Spies Store/Resolver anonymous classes implementando `AuthorizationManifestStoreInterface` / `AuthorizationMetadataResolverInterface`,
+   - Workaround `final Command`: bootstrap temporal `basePath/bootstrap/app.php` return `$GLOBALS['__volt_authz_test_app']`,
+   - ReflectionProperty leer buffers privados `Output::stdoutBuffer/stderrBuffer`.
+7. Bridge mínimo Security ↔ Planner: `Quantum/Authorization/Bridges/ControllerSecurityPlannerBridge`:
+   - `tryEvaluate(SecurityEvaluationRequest): ?SecurityDecision` retorna `null` si no hay `authorization_requirements` ni `permissions` en metadata → HardenedEngine continua intacto,
+   - Mapeo metadata `[authorization_requirements.{ability,effect=allow|deny}]` o fallback `permissions[]`,
+   - Mapea `SecurityPrincipal` (Controllers/Security) → `Quantum/Authorization/Principal` con `mapSecurityPrincipalTypeToAuthorizationType()` enum-compatible,
+   - Invoca `AuthorizationManager::decide()` y normaliza `DecisionResult` → `SecurityDecision` (Allow/Deny/Abstain/Challenge) con obligations `{requirements, fingerprint}` bajo obligaciones.
+8. Tests nuevos totales (ciclo actual + parcial anterior 006):
+   - `AuthorityModelAndRepositoryTest` 9 tests (VO + InMemory + herencia scope),
+   - `ManifestRequirementsEnforcementStageTest` 4 tests concretos + 8 legacy = 12,
+   - `AuthorizationMultiSurfaceIntegrationTest` 5 tests (CLI surface gate, job exception, authority seed directo, helper, authority disabled),
+   - `AuthorizationManifestCommandsTest` 12 tests (commands CLI),
+   - `ControllerSecurityPlannerBridgeTest` 5 tests (convergencia Security ↔ Planner),
+   - **SUITE COMPLETA ACUMULADA:** 107 Unit tests / 393 assertions → exit 0 + 74 Feature Authorization/Security tests / 901 assertions → exit 0 salvo 1 error pre-existente `AuthManager::password_expired` no relacionado.
 
-### Criterio de cierre de V1
+## Siguiente corte recomendado
 
-Se puede considerar cerrada la primera version cuando exista:
+### DV-AUTHZ-007
+
+`Explainability, Memoization De Permisos E Integración Authority ↔ Manager`
+
+Alcance sugerido:
+
+- método `AuthorizationDecisionPlan::explain(): array` con árbol por stage (name, decision, reasonCode, metadata, requirements matched),
+- cache memoization scoped-request `effectivePermissionsForPrincipal` por clave `(principalId, scope, tenantId)` con invalidación por put seed nuevo o invalidate(),
+- integración `AuthorizationManager::check()` + `authorize()` con opt-in early-gate `authorization.authority.enabled` que evalúa grants/denials explícitos antes del planner completo,
+- integración wiring `ControllerSecurityPlannerBridge` en `AuthorizationServiceProvider` bajo flag opcional `authorization.security_bridge.enabled=false` (default off por compatibilidad),
+- ABAC runtime evaluador condicional sobre `AttributeDefinition` constraints pattern/min-max/enum/required,
+- tests unitarios de explain + memoization + early-gate authority + wiring bridge + ABAC runtime (15-20 tests).
+
+Estado del corte:
+
+- V1 conectada (005) + Authority RBAC/Scope (006 cerrado 100%) + CommandsOperative + Convergencia SecurityBridge ya dan un subsistema usable,
+- faltan explainability/trazabilidad + memoization performance + early-gate en AuthorizationManager para cerrar V1+,
+- por lo que el siguiente trabajo debe abrir esos gaps y consolidar la integración de Authority con AuthorizationManager.
+
+Entregables minimos:
+
+1. método `explain()` en el plan final (o `AuthorizationPlanner`) con árbol stages + decision parciales,
+2. memoization `effectivePermissionsForPrincipal()` en InMemoryAuthorityRepository con clave tupla + TTL scoped-request + invalidate/clear API mínima,
+3. integración `AuthorizationManager::check/authorize` early-gate contra `AuthorityRepository` cuando `authorization.authority.enabled=true` y `authorization.authority.early_gate_enabled=true`,
+4. wiring provider del `ControllerSecurityPlannerBridge` con binding singleton + flag config off-by-default,
+5. tests 15+ (explain tree, memoization cache hit/miss, early-gate allow/deny, bridge wiring desactivado/activado, ABAC constraints eval).
+
+Resultado esperado:
+
+- **Cierre parcial DV-AUTHZ-007** (explain + memo + early-gate + wiring bridge + ABAC runtime),
+- Suite total: 140+ tests / 550+ assertions exit 0.
+
+### Criterio de cierre de V1+ (post-DV-AUTHZ-007)
+
+Se puede considerar cerrada la versión consolidada cuando exista:
 
 1. ability + principal + subject + context,
 2. decision model tipado,
-3. `check()` y `authorize()` reales,
-4. policy/gate system minimo,
+3. `check()` y `authorize()` reales con early-gate authority opt-in,
+4. policy/gate system mínimo,
 5. bootstrap en el framework,
 6. request isolation compatible con FrankenPHP,
-7. pruebas unitarias e integracion basicas.
+7. pruebas unitarias e integracion completas (140+ tests),
+8. DecisionPlan::explain() trazabilidad por stage,
+9. memoization effectivePermissions con TTL scoped-request,
+10. SecurityBridge planner wiring off-by-default.
 
 ## Mapa de clases prioritarias
 
@@ -427,6 +506,9 @@ Se puede considerar cerrada la primera version cuando exista:
 4. `GateRegistry`
 5. `DecisionManager`
 6. `AuthorizationServiceProvider`
+7. `ManifestRequirementsEnforcementStage`
+8. `AuthorizationManifestStoreInterface` y stores
+9. `AuthorizationManifestCompileCommand` y `AuthorizationManifestClearCommand`
 
 ## Prioridad P2
 
@@ -481,30 +563,33 @@ Una fase se considera realmente cerrada solo si:
 
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-004
+### DV-AUTHZ-006
 
 Alcance sugerido:
 
-- definir el primer planner/pipeline formal,
-- mover discovery/metadata hacia una capa compilable o manifestable,
-- ampliar la convergencia entre `Controllers/Security` y `Quantum/Authorization`.
+- introducir modelos concretos de `Role`, `Permission`, `Scope` y repositorio `AuthorityRepositoryInterface`,
+- extender el manifest stage para evaluar CADA requirement concreto contra gate/policy y authority repository,
+- tests especificos de commands CLI del manifest,
+- escenarios multi-surface (CLI/Jobs/Workers) sin HTTP RouteMatch,
+- convergencia entre `HardenedControllerSecurityDecisionEngine` de Controllers/Security y `Quantum/Authorization` planner,
+- versionado de scopes jerarquicos `organization > workspace > project`.
 
 Estado del corte:
 
-- el primer planner formal ya existe en version minima,
-- ya existe un pipeline minimo por stages,
-- la metadata declarativa ya puede resolverse por `MetadataEngine`,
-- por lo que el siguiente trabajo debe enriquecer pipeline, metadata compilable y trazabilidad.
+- el planner formal ya se compone de `manifest_requirements → gates → policies`,
+- ya existe fingerprint estable, manifest store persistente y commands de compilation/clearing,
+- por lo que el siguiente trabajo debe aterrizar modelos avanzados de autoridad y enforcement semantico real de requirements.
 
 Entregables minimos:
 
-1. planner/pipeline de evaluacion,
-2. discovery/configuracion compilable,
-3. metadata declarativa soportada por infraestructura reusable,
-4. mayor integracion transversal del framework,
-5. pruebas ampliadas de integracion y errores,
-6. actualizacion de matriz y bitacora.
+1. `Role`, `Permission`, `Scope` como conceptos de primer nivel del modulo,
+2. `AuthorityRepositoryInterface` para grants por principal/tenant,
+3. `ManifestRequirementsEnforcementStage` evaluando requirements concretos (no solo whitelist filter),
+4. tests especificos de commands CLI del manifest,
+5. tests multi-surface sin HTTP RouteMatch,
+6. convergencia con `HardenedControllerSecurityDecisionEngine`,
+7. actualizacion de matriz y bitacora.
 
 Resultado esperado:
 
-- VoltStack pasa de una V1 conectada inicial a una V1 mas estable, compilable y lista para rollout incremental.
+- VoltStack pasa de una V1 conectada inicial a una V1 RBAC+ABAC real, con enforcement evaluable, trazable y usable en todas las superficies del framework.
