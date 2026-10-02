@@ -25,12 +25,18 @@ En `vendor/voltstack/framework/src/Quantum/Authorization` ya existen:
 - mapper de errores del modulo,
 - provider y bootstrap base,
 - planner formal con enrichers y stages,
+- `AuthorizationDecisionPlan` explainable por stages,
 - `AuthorizationMetadataResolver` con projection a `Quantum/Metadata`,
 - `AuthorizationMetadataPayload` normalizado con fingerprint estable,
 - `AuthorizationManifestStoreInterface` con stores InMemory y Filesystem,
 - configuracion `authorization.manifest.enabled` y `authorization.manifest.path`,
 - `ManifestRequirementsEnforcementStage` como enforcement temprano,
+- `AttributeConditionEvaluator` para ABAC runtime declarativo,
+- `AuthorityMemoizationCacheInterface`, `RequestScopedAuthorityMemoizationCache` y `CachedAuthorityRepository`,
+- `DatabaseAuthorityRepository`,
 - fingerprint visible en `DecisionResult::metadataFingerprint()`,
+- early-gate authority opt-in en `AuthorizationManager`,
+- atributos `#[AuthorizeWhen]` y DSL `Route::authorizeWhen()/authorizeWhenAll()`,
 - y commands CLI `authz:manifest:compile` + `authz:manifest:clear` registrados via `commands()` del provider.
 
 ### 2. Siguen existiendo piezas reutilizables de alto valor
@@ -56,8 +62,8 @@ El framework si dispone de infraestructura cercana que debe usarse como base y n
 Conclusión:
 
 - el trabajo fundacional ya quedo aterrizado,
-- la integracion declarativa inicial ya esta abierta,
-- y el siguiente movimiento debe consolidar planner, metadata compilable y cierre de V1 conectada.
+- la integracion declarativa ya es explainable y tiene ABAC runtime utilizable,
+- y el siguiente movimiento debe cerrar tenancy automatica, ReBAC, providers externos y cache distribuida.
 
 ## Objetivo del primer cierre real
 
@@ -184,7 +190,8 @@ Quantum/Authorization
 - Fase 3: completada en version minima manual
 - Fase 4: completada en version minima
 - Fase 5: completada en version inicial conectada
-- Fase 6: siguiente foco ejecutivo
+- Fase 6: completada en version V1+ consolidada
+- Fase 7: siguiente foco ejecutivo
 
 ## Fases ejecutivas
 
@@ -434,54 +441,51 @@ Adicionalmente, el corte DV-AUTHZ-005 ya materializo el siguiente nivel de madur
    - `ControllerSecurityPlannerBridgeTest` 5 tests (convergencia Security ↔ Planner),
    - **SUITE COMPLETA ACUMULADA:** 107 Unit tests / 393 assertions → exit 0 + 74 Feature Authorization/Security tests / 901 assertions → exit 0 salvo 1 error pre-existente `AuthManager::password_expired` no relacionado.
 
+## Estado actual - DV-AUTHZ-007 / DV-AUTHZ-008
+
+**Material nuevo incorporado en runtime:**
+
+1. `AuthorizationDecisionPlan` explainable por stages + `AuthorizationManager::explain()/explainPlan()`.
+2. Memoization request-scoped de `effectivePermissionsForPrincipal()` vía `AuthorityMemoizationCacheInterface`, `RequestScopedAuthorityMemoizationCache` y `CachedAuthorityRepository`.
+3. Early-gate authority opt-in en `AuthorizationManager` (`authorization.authority.early_gate_enabled=false` por defecto).
+4. `DatabaseAuthorityRepository` y wiring por `authorization.authority.driver=memory|database|db|dbal`.
+5. `AttributeConditionEvaluator` y `ManifestRequirementsEnforcementStage` con evaluación ABAC runtime bajo `evaluate_attribute_conditions=false` por defecto.
+6. Metadata declarativa ampliada con `#[AuthorizeWhen]`, `Route::authorizeWhen()`, `Route::authorizeWhenAll()` y DSL runtime `Condition::*`.
+7. Propagación estable de `condition` por metadata resolver, payload factory, enricher y manifest store.
+8. Regresión focalizada actual del subsistema: `--filter=Authorization` → **82 tests / 256 assertions exit 0**, más `MetadataEngineTest` **13 tests exit 0**.
+
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-007
+### DV-AUTHZ-009
 
-`Explainability, Memoization De Permisos E Integración Authority ↔ Manager`
+`ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
 
 Alcance sugerido:
 
-- método `AuthorizationDecisionPlan::explain(): array` con árbol por stage (name, decision, reasonCode, metadata, requirements matched),
-- cache memoization scoped-request `effectivePermissionsForPrincipal` por clave `(principalId, scope, tenantId)` con invalidación por put seed nuevo o invalidate(),
-- integración `AuthorizationManager::check()` + `authorize()` con opt-in early-gate `authorization.authority.enabled` que evalúa grants/denials explícitos antes del planner completo,
-- integración wiring `ControllerSecurityPlannerBridge` en `AuthorizationServiceProvider` bajo flag opcional `authorization.security_bridge.enabled=false` (default off por compatibilidad),
-- ABAC runtime evaluador condicional sobre `AttributeDefinition` constraints pattern/min-max/enum/required,
-- tests unitarios de explain + memoization + early-gate authority + wiring bridge + ABAC runtime (15-20 tests).
+- relaciones explícitas sujeto↔recurso (`owner`, `member`, `manager`, etc.) y evaluador ReBAC básico,
+- resolución automática de tenant/scope desde request, route y superficies no HTTP,
+- backend distribuido para memoization/invalidation de authority cache,
+- providers externos adicionales y lifecycle operativo de sincronización/auditoría,
+- commands de auditoría/revocación para grants y relaciones.
 
 Estado del corte:
 
-- V1 conectada (005) + Authority RBAC/Scope (006 cerrado 100%) + CommandsOperative + Convergencia SecurityBridge ya dan un subsistema usable,
-- faltan explainability/trazabilidad + memoization performance + early-gate en AuthorizationManager para cerrar V1+,
-- por lo que el siguiente trabajo debe abrir esos gaps y consolidar la integración de Authority con AuthorizationManager.
+- la V1+ consolidada ya existe: explainability, memoization, early-gate, bridge opcional, DBAL authority y ABAC declarativo están operativos,
+- el siguiente cuello de botella ya no está en el planner sino en relaciones, tenancy automática y consistencia distribuida,
+- por lo que el siguiente trabajo debe materializar modelos relacionales y operación multi-worker.
 
 Entregables minimos:
 
-1. método `explain()` en el plan final (o `AuthorizationPlanner`) con árbol stages + decision parciales,
-2. memoization `effectivePermissionsForPrincipal()` en InMemoryAuthorityRepository con clave tupla + TTL scoped-request + invalidate/clear API mínima,
-3. integración `AuthorizationManager::check/authorize` early-gate contra `AuthorityRepository` cuando `authorization.authority.enabled=true` y `authorization.authority.early_gate_enabled=true`,
-4. wiring provider del `ControllerSecurityPlannerBridge` con binding singleton + flag config off-by-default,
-5. tests 15+ (explain tree, memoization cache hit/miss, early-gate allow/deny, bridge wiring desactivado/activado, ABAC constraints eval).
+1. `RelationshipRepositoryInterface` o equivalente para relaciones sujeto↔recurso,
+2. `TenantResolverInterface`/scope resolver automático integrado con `AuthorizationContext`,
+3. backend distribuido de cache/invalidation para authority,
+4. tooling CLI de auditoría/revocación,
+5. tests de ReBAC, tenancy y consistency cross-worker.
 
 Resultado esperado:
 
-- **Cierre parcial DV-AUTHZ-007** (explain + memo + early-gate + wiring bridge + ABAC runtime),
-- Suite total: 140+ tests / 550+ assertions exit 0.
-
-### Criterio de cierre de V1+ (post-DV-AUTHZ-007)
-
-Se puede considerar cerrada la versión consolidada cuando exista:
-
-1. ability + principal + subject + context,
-2. decision model tipado,
-3. `check()` y `authorize()` reales con early-gate authority opt-in,
-4. policy/gate system mínimo,
-5. bootstrap en el framework,
-6. request isolation compatible con FrankenPHP,
-7. pruebas unitarias e integracion completas (140+ tests),
-8. DecisionPlan::explain() trazabilidad por stage,
-9. memoization effectivePermissions con TTL scoped-request,
-10. SecurityBridge planner wiring off-by-default.
+- **Cierre parcial DV-AUTHZ-009** (ReBAC básico + tenancy automática + cache distribuida inicial),
+- suite del subsistema ampliada sobre la base actual sin romper el comportamiento opt-in.
 
 ## Mapa de clases prioritarias
 
@@ -563,33 +567,29 @@ Una fase se considera realmente cerrada solo si:
 
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-006
+### DV-AUTHZ-009
 
 Alcance sugerido:
 
-- introducir modelos concretos de `Role`, `Permission`, `Scope` y repositorio `AuthorityRepositoryInterface`,
-- extender el manifest stage para evaluar CADA requirement concreto contra gate/policy y authority repository,
-- tests especificos de commands CLI del manifest,
-- escenarios multi-surface (CLI/Jobs/Workers) sin HTTP RouteMatch,
-- convergencia entre `HardenedControllerSecurityDecisionEngine` de Controllers/Security y `Quantum/Authorization` planner,
-- versionado de scopes jerarquicos `organization > workspace > project`.
+- relaciones explícitas sujeto↔recurso para ReBAC,
+- resolver tenant/scope automático,
+- invalidación distribuida/multi-worker de authority cache,
+- tooling de auditoría/revocación,
+- y providers externos adicionales.
 
 Estado del corte:
 
-- el planner formal ya se compone de `manifest_requirements → gates → policies`,
-- ya existe fingerprint estable, manifest store persistente y commands de compilation/clearing,
-- por lo que el siguiente trabajo debe aterrizar modelos avanzados de autoridad y enforcement semantico real de requirements.
+- planner, authority, explainability, memoization y ABAC declarativo ya están operativos,
+- el siguiente trabajo debe endurecer el módulo para despliegues multi-tenant y multi-worker.
 
 Entregables minimos:
 
-1. `Role`, `Permission`, `Scope` como conceptos de primer nivel del modulo,
-2. `AuthorityRepositoryInterface` para grants por principal/tenant,
-3. `ManifestRequirementsEnforcementStage` evaluando requirements concretos (no solo whitelist filter),
-4. tests especificos de commands CLI del manifest,
-5. tests multi-surface sin HTTP RouteMatch,
-6. convergencia con `HardenedControllerSecurityDecisionEngine`,
-7. actualizacion de matriz y bitacora.
+1. repositorio/contrato de relaciones,
+2. tenant resolver automático,
+3. backend distribuido de invalidación,
+4. commands operativos,
+5. cobertura de tests cross-worker/multi-surface.
 
 Resultado esperado:
 
-- VoltStack pasa de una V1 conectada inicial a una V1 RBAC+ABAC real, con enforcement evaluable, trazable y usable en todas las superficies del framework.
+- VoltStack pasa de una V1+ consolidada a una V1+ multi-tenant y relacional inicial, manteniendo el enfoque opt-in y sin romper la base actual.

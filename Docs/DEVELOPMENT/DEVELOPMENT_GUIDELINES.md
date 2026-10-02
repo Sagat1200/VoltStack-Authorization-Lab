@@ -21,10 +21,12 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `AuthorizationContext` y `AuthorizationContextFactory`,
 - `AuthorizationRequest` y `AuthorizationRequestFactory`,
 - `AuthorizationPlannerInterface` y `AuthorizationPlanner`,
+- `AuthorizationDecisionPlan` y explainability por stages,
 - `AuthorizationRequestEnricherInterface` y enrichment contextual previo a stages,
 - stages explicitos de gates y policies dentro del planner,
 - `Decision`, `DecisionResult` y `DecisionManager`,
 - `AuthorizationManager`,
+- early-gate authority opt-in en `AuthorizationManager`,
 - `AuthorizationMetadataResolver`,
 - `AuthorizationRequirement` y `AuthorizationMetadataPayload`,
 - `AuthorizationMetadataPayloadFactory` para hidratacion desde array,
@@ -33,11 +35,16 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `InMemoryAuthorizationManifestStore` y `FilesystemAuthorizationManifestStore`,
 - configuracion `authorization.manifest.enabled` y `authorization.manifest.path`,
 - `ManifestRequirementsEnforcementStage` para enforcement directo desde metadata de manifest,
+- `AttributeConditionEvaluator` para ABAC runtime declarativo,
 - fingerprint visible en `DecisionResult::metadataFingerprint()` propagado desde planner,
 - comandos CLI `authz:manifest:compile` y `authz:manifest:clear`,
+- `AuthorityMemoizationCacheInterface`, `RequestScopedAuthorityMemoizationCache` y `CachedAuthorityRepository`,
+- `DatabaseAuthorityRepository`,
 - `GateRegistry`,
 - `PolicyRegistry` y `PolicyDispatcher`,
-- atributos `#[Authorize]` y `#[PublicAccess]`,
+- atributos `#[Authorize]`, `#[AuthorizeWhen]` y `#[PublicAccess]`,
+- DSL `Route::authorizeWhen()` y `Route::authorizeWhenAll()`,
+- DSL runtime `Condition::*` para condiciones reutilizables,
 - proyeccion de metadata reusable sobre `Quantum/Metadata`,
 - contracts y atributos declarativos de policy,
 - `AuthorizationServiceProvider`,
@@ -58,8 +65,8 @@ Ademas, el framework ya dispone de infraestructura adyacente reutilizable que si
 Conclusión operativa:
 
 - Authorization ya no parte desde un namespace vacio,
-- pero todavia sigue en una V1 minima,
-- y la siguiente prioridad ya no es fundacional, sino de consolidacion de policies, metadata e integracion con controllers.
+- ya supero la V1 minima y hoy se encuentra en una V1+ consolidada,
+- y la siguiente prioridad ya no es fundacional, sino de tenancy automatica, providers externos, ReBAC y performance distribuida.
 
 ## Fuentes de verdad
 
@@ -357,24 +364,27 @@ No continuar el desarrollo con estos patrones:
 
 ### Fase sugerida inmediata
 
-`DV-AUTHZ-007: Explainability, Memoization De Permisos E Integración Authority ↔ Manager`
+`DV-AUTHZ-009: ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
 
 Documentos objetivo:
 
-- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md` (early-gate authority ↔ AuthorizationManager.check)
-- `14_AUTHORIZATION_CACHE_MEMOIZATION_AND_DECISION_REUSE_SYSTEM.md` (cache effectivePermissions)
-- `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md` (wiring bridge en provider)
-- `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md` (ABAC runtime evaluator)
+- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md` (ReBAC sujeto↔recurso)
+- `13_MULTI_TENANT_AUTHORIZATION_AND_DATA_ISOLATION_SYSTEM.md` (tenant/scope resolver automatico)
+- `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md` (providers externos e invalidacion)
+- `20_AUTHORIZATION_DELEGATION_IMPERSONATION_CAPABILITIES_AND_SERVICE_TO_SERVICE_SYSTEM.md`
+- `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md` (adaptive/risk-based access)
+- `27_AUTHORIZATION_STATE_CONSISTENCY_CONCURRENCY_AND_DISTRIBUTED_COORDINATION_SYSTEM.md`
+- `29_AUTHORIZATION_ADMINISTRATION_MANAGEMENT_AND_OPERATIONAL_TOOLING_SYSTEM.md`
 - `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md`
 
 ### Entregables minimos sugeridos
 
-1. método `AuthorizationDecisionPlan::explain(): array` con árbol por stage + reason code + metadata,
-2. cache memoization `effectivePermissionsForPrincipal` scoped-request por clave `(principalId,scope,tenantId)` con invalidacion por cambio de grants,
-3. integración `AuthorizationManager::check()` con opt-in early-gate `authorization.authority.enabled` (sin planner, solo grants/denials upfront),
-4. integración wiring del `ControllerSecurityPlannerBridge` en `AuthorizationServiceProvider` bajo config flag opcional `authorization.security_bridge.enabled=false` (default off),
-5. tests unitarios de explain + memoization + early-gate authority en AuthorizationManager (10-15 tests),
-6. convergencia ABAC runtime evaluador condicional sobre `AttributeDefinition` constraints pattern/min-max/enum/required.
+1. introducir relaciones explícitas sujeto↔recurso para ReBAC (`owner`, `member`, `manager`, etc.),
+2. resolver `Scope` y tenant automáticamente desde request, route y superficies no HTTP,
+3. añadir backend distribuido de invalidación/memoization para authority cache,
+4. endurecer providers externos y lifecycle de sincronización/auditoría,
+5. abrir commands operativos de auditoría/revocación sobre grants y relaciones,
+6. extender ABAC contextual hacia risk scoring y adaptive access.
 
 ## Corte anterior ejecutado
 

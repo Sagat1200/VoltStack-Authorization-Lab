@@ -13,16 +13,16 @@ Sirve como control operativo de:
 
 ## Corte actual
 
-- Fecha de actualizacion: `2026-09-23`
-- Estado general: `Quantum/Authorization ya dispone de un core minimo operativo, mas una primera integracion declarativa con controllers, routing y manejo de errores HTTP.`
-- Clasificacion del corte: `V1 conectada inicial`
+- Fecha de actualizacion: `2026-10-02`
+- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database, memoization request-scoped, early-gate opt-in y ABAC runtime declarativo conectado a metadata, routing y controllers.`
+- Clasificacion del corte: `V1+ consolidada con extensibilidad inicial`
 
 ## Resumen ejecutivo
 
 Hoy Authorization se encuentra en esta situacion:
 
 1. la arquitectura `00-32` ya esta escrita con mucho detalle,
-2. `Quantum/Authorization` ya dispone de core, policies declarativas iniciales, atributos, DSL de rutas y mapper de excepciones,
+2. `Quantum/Authorization` ya dispone de core, planner explainable, policies declarativas, metadata compilable, authority repositories, atributos/DSL de rutas y mapper de excepciones,
 3. `Quantum/Controllers/Security` sigue demostrando muchas ideas reutilizables:
    - principal,
    - contexto,
@@ -31,9 +31,9 @@ Hoy Authorization se encuentra en esta situacion:
    - composicion de policies,
    - fail-closed,
    - worker safety,
-4. `Quantum/Metadata` ya ofrece una base para discovery y metadata declarativa futura,
+4. `Quantum/Metadata` ya soporta la proyeccion declarativa de condiciones y fingerprints del modulo,
 5. `Quantum/Auth` ya puede suministrar identidad y contexto de autenticacion,
-6. el gap dominante ya no es abrir el modulo, sino consolidar planner, compilacion y rollout mas profundo.
+6. el gap dominante ya no es abrir el modulo, sino cerrar tenancy automatica, providers externos, ReBAC y performance distribuida.
 
 ## Entradas de version
 
@@ -350,36 +350,6 @@ Hoy Authorization se encuentra en esta situacion:
 - convergencia entre `Controllers/Security` decision engine y `Quantum/Authorization` planner,
 - auditoria/explainability plan de decisiones.
 
-## Siguiente corte recomendado
-
-### DV-AUTHZ-006
-
-**Titulo sugerido:** `Modelos Avanzados De Autoridad (RBAC, ABAC, Tenancy Y Scopes Jerarquicos)`
-
-**Documentos fuente**
-
-- `05_POLICY_REGISTRY_DISCOVERY_AND_RESOLUTION_SYSTEM.md`
-- `09_AUTHORIZATION_PLANNER_AND_POLICY_PIPELINE_SYSTEM.md`
-- `10_AUTHORIZATION_ATTRIBUTES_AND_DECLARATIVE_METADATA_SYSTEM.md`
-- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md`
-- `13_MULTI_TENANT_AUTHORIZATION_AND_DATA_ISOLATION_SYSTEM.md`
-- `14_AUTHORIZATION_CACHE_MEMOIZATION_AND_DECISION_REUSE_SYSTEM.md`
-- `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md`
-- `20_AUTHORIZATION_DELEGATION_IMPERSONATION_CAPABILITIES_AND_SERVICE_TO_SERVICE_SYSTEM.md`
-- `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md`
-- `27_AUTHORIZATION_STATE_CONSISTENCY_CONCURRENCY_AND_DISTRIBUTED_COORDINATION_SYSTEM.md`
-- `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md`
-
-**Alcance sugerido**
-
-1. introducir modelos concretos de `Role`, `Permission`, `Scope` y `AttributeDefinition` como conceptos de primer nivel del modulo,
-2. introducir repositorio/interfaz `AuthorityRepositoryInterface` para resolucion de grants por principal/tenant,
-3. extender `ManifestRequirementsEnforcementStage` para evaluar CADA requirement concreto contra gate/policy y authority repository,
-4. tests especificos de commands CLI de manifest,
-5. tests multi-surface (CLI/Jobs/Workers) sin HTTP RouteMatch,
-6. convergencia entre el `HardenedControllerSecurityDecisionEngine` (Controllers/Security) y `Quantum/Authorization` planner,
-7. versionado de scopes jerarquicos `organization > workspace > project`.
-
 ## Roadmap corto recomendado
 
 ### DV-AUTHZ-004 — CERRADO
@@ -499,43 +469,164 @@ Foco entregado COMPLETO:
 - `vendor\bin\phpunit tests\Unit\ControllerSecurityPlannerBridgeTest.php` → **5 tests, 14 assertions, exit 0**
 - suite core/controllers/features ACUMULADA: 107 tests Unit (393 assertions) + 74 tests Feature Authorization+SecuritySmoke+AuthManager (901 assertions) → exit 0 salvo 1 error pre-existente `AuthManager::password_expired` no relacionado.
 
-### DV-AUTHZ-006 — SIGUIENTE (para completar)
+### DV-AUTHZ-007
 
-`Modelos Avanzados De Autoridad (RBAC, ABAC, Tenancy) — CERRADO 100%`
+**Tipo:** Consolidacion V1+
+**Estado:** Cerrado (100%)
+**Objetivo:** Aterrizar explainability del planner, memoization request-scoped e integración `AuthorityRepository` ↔ `AuthorizationManager` sin romper compatibilidad.
 
-Pendiente migratorio para fases futuras (no bloqueante para 006):
-- integración `Authorization::authorize()` con AuthorityRepository early-gate vía config,
-- auditoria `DecisionPlan::explain()` con árbol stages.
+**Documentos impactados**
+
+- `DEVELOPMENT_GUIDELINES.md`
+- `DEVELOPMENT_MATRIX.md`
+- `DEVELOPMENT_VERSIONS.md`
+- `EXECUTIVE_PLAN_IMPLEMENTATION.md`
+
+**Alcance ejecutado en este corte**
+
+1. introducir `AuthorizationDecisionPlan` como VO explainable con `explain(): array` y árbol por stages/resultados,
+2. ampliar `AuthorizationPlanner` con `planAsDecisionPlan()` y timestamp/fingerprint reutilizable,
+3. añadir shortcuts `AuthorizationManager::explain()` y `AuthorizationManager::explainPlan()`,
+4. introducir `AuthorityMemoizationCacheInterface`, `RequestScopedAuthorityMemoizationCache` y `CachedAuthorityRepository`,
+5. integrar early-gate opt-in en `AuthorizationManager::decide()` contra `AuthorityRepository` antes del planner completo,
+6. cablear `AuthorizationServiceProvider` con defaults `memoize=true`, `early_gate_enabled=false` y binding opcional del `ControllerSecurityPlannerBridge`,
+7. reforzar `DecisionResult::extractFingerprint()` para metadata explainable sin fingerprint explícito.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Decision/AuthorizationDecisionPlan.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorityMemoizationCacheInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/RequestScopedAuthorityMemoizationCache.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/CachedAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationPlanner.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationManager.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Decision/DecisionResult.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationDecisionPlanExplanationTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorityMemoizationAndCacheTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManagerAuthorityEarlyGateTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderBridgeAndFlagsTest.php`
+
+**Resultado operativo**
+
+- el planner ya puede devolverse como plan explainable con estructura estable por stage/result,
+- `AuthorizationManager` puede exponer explainability sin alterar las APIs públicas `check/cannot/decide/authorize`,
+- `effectivePermissionsForPrincipal()` queda memoizado por request cuando `authorization.authority.memoize=true`,
+- el hot path puede cortar por `AuthorityRepository` antes del planner completo cuando `authorization.authority.early_gate_enabled=true`,
+- y el bridge `Controllers/Security` queda cableable vía provider bajo flag off-by-default.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorizationDecisionPlanExplanationTest.php` → **5 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorityMemoizationAndCacheTest.php` → **7 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationManagerAuthorityEarlyGateTest.php` → **7 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php` → **7 tests, exit 0**
+
+### DV-AUTHZ-008
+
+**Tipo:** Expansion declarativa y provider DBAL
+**Estado:** Parcial avanzado
+**Objetivo:** Abrir providers persistentes de authority y materializar ABAC runtime declarativo en metadata, rutas y controllers.
+
+**Documentos impactados**
+
+- `DEVELOPMENT_GUIDELINES.md`
+- `DEVELOPMENT_MATRIX.md`
+- `DEVELOPMENT_VERSIONS.md`
+- `EXECUTIVE_PLAN_IMPLEMENTATION.md`
+
+**Alcance ejecutado en este corte**
+
+1. introducir `DatabaseAuthorityRepository` con tablas `authorization_role_grants`, `authorization_permission_grants` y `authorization_role_permissions`,
+2. extender `AuthorizationServiceProvider` con `authorization.authority.driver=memory|database|db|dbal`, `database.connection` y `database.tables.*`,
+3. introducir `AttributeConditionEvaluator` para evaluar condiciones ABAC runtime sobre `AuthorizationContext` y `subject.*`,
+4. ampliar `AttributeDefinition` para respetar `min` y `max` en `accepts()`,
+5. habilitar enforcement ABAC runtime en `ManifestRequirementsEnforcementStage` bajo flag `authorization.authority.evaluate_attribute_conditions=false` por defecto,
+6. propagar `condition` por `AuthorizationRequirement`, payload, resolver, enricher y manifest store,
+7. introducir `#[AuthorizeWhen]`, `Route::authorizeWhen()`, `Route::authorizeWhenAll()` y DSL `Condition::*` para declarar condiciones reutilizables sin arrays crudos en runtime.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DatabaseAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/ABAC/AttributeConditionEvaluator.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/ABAC/Condition.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Attributes/AuthorizeWhen.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/AttributeDefinition.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/ManifestRequirementsEnforcementStage.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationRequirement.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadataPayloadFactory.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadataResolver.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/Providers/AttributeMetadataProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/Providers/RouteMetadataProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Routing/Route.php`
+- `vendor/voltstack/framework/tests/Unit/DatabaseAuthorityRepositoryTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderDatabaseAuthorityTest.php`
+- `vendor/voltstack/framework/tests/Unit/AttributeConditionEvaluatorTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationMetadataResolverTest.php`
+- `vendor/voltstack/framework/tests/Unit/MetadataAuthorizationContextEnricherTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManifestIntegrationTest.php`
+- `vendor/voltstack/framework/tests/Unit/MetadataEngineTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManagerTest.php`
+
+**Resultado operativo**
+
+- Authorization ya puede resolver grants desde memoria o base de datos sin cambiar el contrato público,
+- las condiciones ABAC declarativas viajan de atributo/ruta → metadata → manifest → stage de enforcement,
+- `AuthorizeWhen` y `Condition::*` unifican la semántica declarativa entre controllers, rutas y adapters runtime,
+- el manager ya puede tomar decisiones end-to-end usando requirements condicionados por contexto (`risk.score`, `department`, etc.),
+- y todo sigue siendo opt-in por flags (`evaluate_attribute_conditions=false`, `early_gate_enabled=false`, bridge off).
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\DatabaseAuthorityRepositoryTest.php` → **2 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationServiceProviderDatabaseAuthorityTest.php` → **3 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AttributeConditionEvaluatorTest.php` → **5 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationMetadataResolverTest.php` → **3 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\MetadataAuthorizationContextEnricherTest.php` → **2 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationManifestIntegrationTest.php` → **3 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\MetadataEngineTest.php` → **13 tests, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationManagerTest.php` → **11 tests, exit 0**
+- `vendor\bin\phpunit --filter=Authorization` → **82 tests / 256 assertions, exit 0**
+
+**Gap natural siguiente**
+
+- materializar ReBAC relacional sujeto↔recurso,
+- resolver tenant/scope automático desde request y superficies no HTTP,
+- invalidar memoization/caches de authority en escenarios multi-worker/multi-node,
+- y endurecer providers externos y tooling operativo de auditoría/revocación.
 
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-007
+### DV-AUTHZ-009
 
-**Titulo sugerido:** `Explainability, Memoization De Permisos E Integración Authority ↔ Manager`
+**Titulo sugerido:** `ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
 
 **Documentos fuente**
 
 - `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md`
-- `14_AUTHORIZATION_CACHE_MEMOIZATION_AND_DECISION_REUSE_SYSTEM.md`
+- `13_MULTI_TENANT_AUTHORIZATION_AND_DATA_ISOLATION_SYSTEM.md`
 - `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md`
+- `20_AUTHORIZATION_DELEGATION_IMPERSONATION_CAPABILITIES_AND_SERVICE_TO_SERVICE_SYSTEM.md`
 - `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md`
+- `27_AUTHORIZATION_STATE_CONSISTENCY_CONCURRENCY_AND_DISTRIBUTED_COORDINATION_SYSTEM.md`
+- `29_AUTHORIZATION_ADMINISTRATION_MANAGEMENT_AND_OPERATIONAL_TOOLING_SYSTEM.md`
 - `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md`
 
 **Alcance sugerido**
 
-1. método `AuthorizationDecisionPlan::explain(): array` con trace por stage + reason code,
-2. cache memoización `effectivePermissionsForPrincipal` por par clave `(principalId,scope)` con TTL scoped-request,
-3. integración `AuthorizationManager::authorize()` + `check()` con `authorization.authority.enabled` como early gate antes de planner (opt-in vía config),
-4. integración wiring del `ControllerSecurityPlannerBridge` en `AuthorizationServiceProvider` para uso opcional en rutas que habiliten metadata `authorization_requirements`,
-5. tests unitarios de explain + memoization + early-gate authority en AuthorizationManager.
+1. introducir relaciones explícitas sujeto↔recurso para ReBAC (`owner`, `member`, `manager`, etc.),
+2. resolver `Scope` y tenant automáticamente desde request/route/contexto de superficie,
+3. definir backend distribuido de memoization/invalidation para authority cache,
+4. abrir providers externos adicionales y lifecycle de invalidación/auditoría,
+5. añadir commands operativos de auditoría/revocación para grants y relaciones.
 
-### DV-AUTHZ-007 — SIGUIENTE
+### DV-AUTHZ-009 — SIGUIENTE
 
-`Explainability, Memoization De Permisos E Integración Authority ↔ Manager`
+`ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
 
 Foco:
 
-- `12`, `14`, `19`, `23`, `31`
+- `12`, `13`, `19`, `20`, `23`, `27`, `29`, `31`
 
 ## Regla de mantenimiento
 
