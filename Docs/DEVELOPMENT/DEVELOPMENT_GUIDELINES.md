@@ -27,6 +27,9 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `Decision`, `DecisionResult` y `DecisionManager`,
 - `AuthorizationManager`,
 - early-gate authority opt-in en `AuthorizationManager`,
+- `TenantScopeResolverInterface` y `TenantScopeResolver` para normalizar `tenant.id`/`tenant_id` hacia scope de authorization (opt-in),
+- proyeccion de tenant HTTP real desde `ControllerEngine` hacia el contexto de Authorization,
+- lectura adicional de señales runtime (`Request`, `RouteMatch`, `controller.security.context`) para derivar tenant/scope sin wiring manual,
 - `AuthorizationMetadataResolver`,
 - `AuthorizationRequirement` y `AuthorizationMetadataPayload`,
 - `AuthorizationMetadataPayloadFactory` para hidratacion desde array,
@@ -66,7 +69,7 @@ Conclusión operativa:
 
 - Authorization ya no parte desde un namespace vacio,
 - ya supero la V1 minima y hoy se encuentra en una V1+ consolidada,
-- y la siguiente prioridad ya no es fundacional, sino de tenancy automatica, providers externos, ReBAC y performance distribuida.
+- y la siguiente prioridad ya no es fundacional, sino de tenancy automatica cross-surface, providers externos, ReBAC y performance distribuida.
 
 ## Fuentes de verdad
 
@@ -359,6 +362,9 @@ No continuar el desarrollo con estos patrones:
 9. activar `evaluateRequirementsConcretely=true` POR DEFECTO (DEBE ser opt-in via config para no romper V1 existente),
 10. acceder a propiedades privadas de clases VO/contracts (ej: `RouteDefinition->action`) — siempre usar getters públicos (`action()`),
 11. en bridges Security ↔ Planner retornar decision forzada cuando no hay requirements presentes — retornar `null` para que el Hardened engine continue intacto.
+12. toda resolucion automática tenant→scope en Authorization debe permanecer **opt-in**; el fallback legacy (`authorization.scope` explícito) no debe romperse.
+13. cualquier repositorio de authority que dependa de `DatabaseInterface` o caches request-scoped debe vivir en ciclo `scoped`, no `singleton`.
+14. cuando se agreguen nuevas fuentes runtime para tenant/scope, deben entrar por el resolver compartido en vez de dispersar heurísticas por stage/manager/controller.
 
 ## Siguiente ejecucion recomendada
 

@@ -36,6 +36,9 @@ En `vendor/voltstack/framework/src/Quantum/Authorization` ya existen:
 - `DatabaseAuthorityRepository`,
 - fingerprint visible en `DecisionResult::metadataFingerprint()`,
 - early-gate authority opt-in en `AuthorizationManager`,
+- `TenantScopeResolverInterface` y `TenantScopeResolver` para proyeccion automática de scope (opt-in),
+- `ControllerEngine` proyectando tenant HTTP real al contexto de Authorization antes del authorize(),
+- `TenantScopeResolver` leyendo señales runtime (`Request`, `RouteMatch`, `controller.security.context`, route params`) para derivar tenant/scope en usos directos del planner/manager,
 - atributos `#[AuthorizeWhen]` y DSL `Route::authorizeWhen()/authorizeWhenAll()`,
 - y commands CLI `authz:manifest:compile` + `authz:manifest:clear` registrados via `commands()` del provider.
 
@@ -452,7 +455,9 @@ Adicionalmente, el corte DV-AUTHZ-005 ya materializo el siguiente nivel de madur
 5. `AttributeConditionEvaluator` y `ManifestRequirementsEnforcementStage` con evaluación ABAC runtime bajo `evaluate_attribute_conditions=false` por defecto.
 6. Metadata declarativa ampliada con `#[AuthorizeWhen]`, `Route::authorizeWhen()`, `Route::authorizeWhenAll()` y DSL runtime `Condition::*`.
 7. Propagación estable de `condition` por metadata resolver, payload factory, enricher y manifest store.
-8. Regresión focalizada actual del subsistema: `--filter=Authorization` → **82 tests / 256 assertions exit 0**, más `MetadataEngineTest` **13 tests exit 0**.
+8. Primera capa de tenant/scope resolver automático (opt-in) ya integrada con `AuthorizationContextFactory`, `AuthorizationManager`, `ManifestRequirementsEnforcementStage` y `ControllerEngine`.
+9. El inner authority repository se ajustó a ciclo `scoped` para convivir correctamente con `DatabaseInterface` y memoization request-scoped.
+10. Regresión focalizada actual del subsistema: `--filter=Authorization` → **87 tests / 269 assertions exit 0**, más `ControllerEngineTest` **23 tests exit 0** y `MetadataEngineTest` **13 tests exit 0**.
 
 ## Siguiente corte recomendado
 
@@ -463,7 +468,7 @@ Adicionalmente, el corte DV-AUTHZ-005 ya materializo el siguiente nivel de madur
 Alcance sugerido:
 
 - relaciones explícitas sujeto↔recurso (`owner`, `member`, `manager`, etc.) y evaluador ReBAC básico,
-- resolución automática de tenant/scope desde request, route y superficies no HTTP,
+- profundizar la resolución automática de tenant/scope desde request, route y superficies no HTTP,
 - backend distribuido para memoization/invalidation de authority cache,
 - providers externos adicionales y lifecycle operativo de sincronización/auditoría,
 - commands de auditoría/revocación para grants y relaciones.

@@ -14,7 +14,7 @@ Sirve como control operativo de:
 ## Corte actual
 
 - Fecha de actualizacion: `2026-10-02`
-- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database, memoization request-scoped, early-gate opt-in y ABAC runtime declarativo conectado a metadata, routing y controllers.`
+- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database, memoization request-scoped, early-gate opt-in, ABAC runtime declarativo y una primera proyeccion tenant/scope automática opt-in ya conectada a metadata, routing, controllers, ControllerEngine y señales runtime como Request/RouteMatch.`
 - Clasificacion del corte: `V1+ consolidada con extensibilidad inicial`
 
 ## Resumen ejecutivo
@@ -33,7 +33,7 @@ Hoy Authorization se encuentra en esta situacion:
    - worker safety,
 4. `Quantum/Metadata` ya soporta la proyeccion declarativa de condiciones y fingerprints del modulo,
 5. `Quantum/Auth` ya puede suministrar identidad y contexto de autenticacion,
-6. el gap dominante ya no es abrir el modulo, sino cerrar tenancy automatica, providers externos, ReBAC y performance distribuida.
+6. el gap dominante ya no es abrir el modulo, sino profundizar tenancy automatica cross-surface, providers externos, ReBAC y performance distribuida.
 
 ## Entradas de version
 
@@ -619,6 +619,16 @@ Foco entregado COMPLETO:
 3. definir backend distribuido de memoization/invalidation para authority cache,
 4. abrir providers externos adicionales y lifecycle de invalidación/auditoría,
 5. añadir commands operativos de auditoría/revocación para grants y relaciones.
+
+**Avance inicial ejecutado**
+
+1. `TenantScopeResolverInterface` + `TenantScopeResolver` opt-in ya existen y normalizan `tenant.id`/`tenant_id` hacia `authorization.scope`,
+2. `AuthorizationContextFactory` ahora puede proyectar scope automático al contexto cuando el resolver está habilitado,
+3. `AuthorizationManager` y `ManifestRequirementsEnforcementStage` ya consumen el resolver para early-gate y enforcement concreto,
+4. `ControllerEngine` ya proyecta `X-Tenant-Id` y tenant de runtime al contexto que usa `AuthorizationManager` para requirements de ruta/controller,
+5. `TenantScopeResolver` ahora también entiende `Request`, `RouteMatch`, `controller.security.context` y parámetros `tenant|tenant_id|tenantId`, reduciendo el wiring manual en usos directos del manager/planner,
+6. `AuthorizationServiceProvider` ajustó el ciclo de vida del inner authority repository a `scoped` para convivir correctamente con `DatabaseInterface` y memoization request-scoped,
+7. cobertura nueva: `AuthorizationServiceProviderBridgeAndFlagsTest` (8), `AuthorizationManagerAuthorityEarlyGateTest` (9), `MetadataAuthorizationContextEnricherTest` (3), `ManifestRequirementsEnforcementStageTest` (16), `ControllerEngineTest` (+1 escenario), regresión focalizada `--filter=Authorization` **87 tests / 269 assertions exit 0**.
 
 ### DV-AUTHZ-009 — SIGUIENTE
 
