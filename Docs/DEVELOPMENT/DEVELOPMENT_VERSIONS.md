@@ -13,9 +13,9 @@ Sirve como control operativo de:
 
 ## Corte actual
 
-- Fecha de actualizacion: `2026-10-02`
-- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database, memoization request-scoped, early-gate opt-in, ABAC runtime declarativo y una primera proyeccion tenant/scope automática opt-in ya conectada a metadata, routing, controllers, ControllerEngine y señales runtime como Request/RouteMatch.`
-- Clasificacion del corte: `V1+ consolidada con extensibilidad inicial`
+- Fecha de actualizacion: `2026-10-07`
+- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database, memoization request-scoped con versionado generacional inicial, early-gate opt-in, ABAC runtime declarativo, tenant/scope automático opt-in ya conectado a metadata/routing/controllers/command/job runtime y una primera capa ReBAC opt-in integrada al pipeline declarativo mediante metadata relation con drivers memory y database.`
+- Clasificacion del corte: `V1+ multi-tenant relacional consistente inicial`
 
 ## Resumen ejecutivo
 
@@ -33,7 +33,7 @@ Hoy Authorization se encuentra en esta situacion:
    - worker safety,
 4. `Quantum/Metadata` ya soporta la proyeccion declarativa de condiciones y fingerprints del modulo,
 5. `Quantum/Auth` ya puede suministrar identidad y contexto de autenticacion,
-6. el gap dominante ya no es abrir el modulo, sino profundizar tenancy automatica cross-surface, providers externos, ReBAC y performance distribuida.
+6. el gap dominante ya no es abrir el modulo, sino llevar la invalidacion/versionado hacia un backend multi-worker real, providers externos y performance distribuida.
 
 ## Entradas de version
 
@@ -595,11 +595,13 @@ Foco entregado COMPLETO:
 - invalidar memoization/caches de authority en escenarios multi-worker/multi-node,
 - y endurecer providers externos y tooling operativo de auditoría/revocación.
 
-## Siguiente corte recomendado
+## Corte ejecutado
 
 ### DV-AUTHZ-009
 
-**Titulo sugerido:** `ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
+**Tipo:** Expansion multi-tenant relacional inicial
+**Estado:** Parcial avanzado
+**Objetivo:** Introducir una primera capa ReBAC opt-in sobre el pipeline declarativo y cerrar la propagacion tenant/scope automática iniciada en el corte anterior.
 
 **Documentos fuente**
 
@@ -612,15 +614,7 @@ Foco entregado COMPLETO:
 - `29_AUTHORIZATION_ADMINISTRATION_MANAGEMENT_AND_OPERATIONAL_TOOLING_SYSTEM.md`
 - `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md`
 
-**Alcance sugerido**
-
-1. introducir relaciones explícitas sujeto↔recurso para ReBAC (`owner`, `member`, `manager`, etc.),
-2. resolver `Scope` y tenant automáticamente desde request/route/contexto de superficie,
-3. definir backend distribuido de memoization/invalidation para authority cache,
-4. abrir providers externos adicionales y lifecycle de invalidación/auditoría,
-5. añadir commands operativos de auditoría/revocación para grants y relaciones.
-
-**Avance inicial ejecutado**
+**Alcance ejecutado en este corte**
 
 1. `TenantScopeResolverInterface` + `TenantScopeResolver` opt-in ya existen y normalizan `tenant.id`/`tenant_id` hacia `authorization.scope`,
 2. `AuthorizationContextFactory` ahora puede proyectar scope automático al contexto cuando el resolver está habilitado,
@@ -628,11 +622,239 @@ Foco entregado COMPLETO:
 4. `ControllerEngine` ya proyecta `X-Tenant-Id` y tenant de runtime al contexto que usa `AuthorizationManager` para requirements de ruta/controller,
 5. `TenantScopeResolver` ahora también entiende `Request`, `RouteMatch`, `controller.security.context` y parámetros `tenant|tenant_id|tenantId`, reduciendo el wiring manual en usos directos del manager/planner,
 6. `AuthorizationServiceProvider` ajustó el ciclo de vida del inner authority repository a `scoped` para convivir correctamente con `DatabaseInterface` y memoization request-scoped,
-7. cobertura nueva: `AuthorizationServiceProviderBridgeAndFlagsTest` (8), `AuthorizationManagerAuthorityEarlyGateTest` (9), `MetadataAuthorizationContextEnricherTest` (3), `ManifestRequirementsEnforcementStageTest` (16), `ControllerEngineTest` (+1 escenario), regresión focalizada `--filter=Authorization` **87 tests / 269 assertions exit 0**.
+7. introducir `RelationshipRepositoryInterface`, `InMemoryRelationshipRepository` y `RelationshipEvaluator` como base ReBAC opt-in,
+8. propagar `relation` por `AuthorizationRequirement`, payload factory, resolver, metadata providers y manifest stage,
+9. extender la ergonomia declarativa con `Route::authorizeRelated()` y `#[Authorize(..., relation: ...)]` manteniendo backward compatibility por argumento opcional,
+10. cablear `AuthorizationServiceProvider` con `authorization.relationships.evaluate=false` y `authorization.relationships.entries=[]`,
+11. endurecer `InMemoryRelationshipRepository::candidateScopes()` para cortar correctamente al alcanzar `global` y evitar loops de parent scope,
+12. añadir cobertura nueva para metadata relacional, repositorio/evaluador de relaciones, stage runtime, provider flags y manager end-to-end.
 
-### DV-AUTHZ-009 — SIGUIENTE
+**Evidencia**
 
-`ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/RelationshipRepositoryInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/InMemoryRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/RelationshipEvaluator.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Attributes/Authorize.php`
+- `vendor/voltstack/framework/src/Quantum/Routing/Route.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/Providers/AttributeMetadataProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Metadata/Providers/RouteMetadataProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationRequirement.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadataPayloadFactory.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Metadata/AuthorizationMetadataResolver.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/ManifestRequirementsEnforcementStage.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/InMemoryRelationshipRepositoryTest.php`
+- `vendor/voltstack/framework/tests/Unit/RelationshipEvaluatorTest.php`
+- `vendor/voltstack/framework/tests/Unit/ManifestRequirementsEnforcementStageTest.php`
+- `vendor/voltstack/framework/tests/Unit/MetadataEngineTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationMetadataResolverTest.php`
+- `vendor/voltstack/framework/tests/Unit/MetadataAuthorizationContextEnricherTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManifestIntegrationTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderBridgeAndFlagsTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManagerTest.php`
+
+**Resultado operativo**
+
+- Authorization ya puede evaluar relaciones sujeto↔recurso de forma opt-in antes del check RBAC final dentro de `ManifestRequirementsEnforcementStage`,
+- la metadata declarativa soporta `relation` end-to-end en atributos, rutas, payloads, resolver y manifest cache,
+- `Route::authorizeRelated()` y el cuarto argumento opcional de `Authorize`/`Route::authorize()` permiten expresar ReBAC sin romper la API existente,
+- el provider ya expone flags y seeds basicos para relaciones in-memory,
+- y la primera capa ReBAC queda alineada con tenancy/scope automático ya existente, conservando defaults off-by-default.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\MetadataEngineTest.php tests\Unit\AuthorizationMetadataResolverTest.php tests\Unit\MetadataAuthorizationContextEnricherTest.php tests\Unit\AuthorizationManifestIntegrationTest.php` → **25 tests, 52 assertions, exit 0**
+- `vendor\bin\phpunit tests\Unit\RelationshipEvaluatorTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationManagerTest.php tests\Unit\InMemoryRelationshipRepositoryTest.php` → **43 tests, 127 assertions, exit 0 con 2 deprecations no bloqueantes**
+- regresión focalizada del corte ReBAC: **68 tests / 179 assertions, exit 0**
+
+**Gap natural siguiente**
+
+- provider persistente inicial para relaciones y tooling operativo sobre grants/relations,
+- tenancy automática uniforme en mas superficies no HTTP,
+- invalidacion distribuida/multi-worker para authority cache y relaciones,
+- providers externos adicionales,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Corte ejecutado
+
+### DV-AUTHZ-010A
+
+**Tipo:** Persistencia relacional inicial
+**Estado:** Cerrado
+**Objetivo:** Añadir un backend `database` para `RelationshipRepositoryInterface` sin romper la semántica ReBAC existente.
+
+**Alcance ejecutado**
+
+1. se añadió `DatabaseRelationshipRepository` como implementación persistente read-only para relaciones,
+2. la resolución usa `resource_key` derivado con la misma semántica observable que `InMemoryRelationshipRepository`,
+3. `AuthorizationServiceProvider` ahora soporta `authorization.relationships.driver=memory|database|db|dbal`,
+4. se añadieron defaults `authorization.relationships.database.connection` y `authorization.relationships.database.table`,
+5. el manager y el stage ReBAC pueden resolver relaciones persistentes sin cambiar contratos públicos.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/DatabaseRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/DatabaseRelationshipRepositoryTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderDatabaseRelationshipTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManagerDatabaseRelationshipTest.php`
+
+**Resultado operativo**
+
+- ReBAC ya no depende solo de seeds en memoria,
+- el provider puede resolver relationships desde SQLite/DBAL manteniendo el contrato `RelationshipRepositoryInterface`,
+- `AuthorizationManager` ya valida relaciones persistentes end-to-end sobre rutas declarativas,
+- y el modulo avanza hacia DV-AUTHZ-010 sin forzar aun tooling operativo ni invalidación distribuida.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\AuthorizationServiceProviderDatabaseRelationshipTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php` → **14 tests / 40 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\InMemoryRelationshipRepositoryTest.php tests\Unit\RelationshipEvaluatorTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php tests\Unit\AuthorizationManagerTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\AuthorizationServiceProviderDatabaseRelationshipTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php` → **39 tests / 121 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- commands de auditoría/revocación sobre grants y relaciones,
+- tenancy automática uniforme en mas superficies no HTTP,
+- invalidacion distribuida/multi-worker para authority cache y relaciones,
+- proveedores relacionales mas ricos y no-DBAL,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Corte ejecutado
+
+### DV-AUTHZ-010B
+
+**Tipo:** Tooling operativo inicial
+**Estado:** Cerrado
+**Objetivo:** Exponer operaciones básicas de auditoría/revocación para relaciones ReBAC sobre drivers `memory` y `database`.
+
+**Alcance ejecutado**
+
+1. se añadió `RelationshipAdministrationInterface` como contrato opt-in para operaciones administrativas,
+2. `InMemoryRelationshipRepository` y `DatabaseRelationshipRepository` ahora soportan `listRelationships()` y `revokeRelationshipByKey()`,
+3. `AuthorizationServiceProvider` expone el binding administrativo y registra `authz:relationships:list` + `authz:relationships:revoke`,
+4. los comandos permiten filtrar/listar relaciones y revocar una relación exacta por `principal_id`, `relation`, `scope` y `resource_key`,
+5. el tooling queda alineado con los drivers ya existentes sin romper el contrato runtime de evaluación.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/RelationshipAdministrationInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/InMemoryRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/DatabaseRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationRelationshipsListCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationRelationshipsRevokeCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationRelationshipCommandsTest.php`
+
+**Resultado operativo**
+
+- Authorization ya puede inspeccionar y revocar relaciones ReBAC sin tocar el código ni los seeds manualmente,
+- el tooling funciona igual sobre repositorios `memory` y `database`,
+- y el módulo gana una primera superficie operativa real antes de entrar en tenancy cross-surface e invalidación distribuida.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\InMemoryRelationshipRepositoryTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationServiceProviderDatabaseRelationshipTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php` → **26 tests / 82 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\InMemoryRelationshipRepositoryTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\RelationshipEvaluatorTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php tests\Unit\AuthorizationManagerTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationServiceProviderDatabaseRelationshipTest.php` → **58 tests / 181 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- tenancy automática uniforme en mas superficies no HTTP,
+- invalidacion distribuida/multi-worker para authority cache y relaciones,
+- commands operativos de grant/auditoría más ricos,
+- providers externos adicionales,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Corte ejecutado
+
+### DV-AUTHZ-010C
+
+**Tipo:** Tenancy cross-surface inicial
+**Estado:** Cerrado
+**Objetivo:** Extender la resolución automática de tenant/scope fuera de HTTP para surfaces `command`, `job` y runtime sintético.
+
+**Alcance ejecutado**
+
+1. `AuthorizationContextFactory` ahora puede construir contexto desde `RuntimeContext` activo cuando no existe auth context,
+2. el factory proyecta `Request` y `RuntimeContext` hacia `AuthorizationContext` y conserva `runtime.channel`,
+3. `TenantScopeResolver` ya resuelve tenant/scope desde `runtime_context`, metadata runtime y request sintético de jobs/commands,
+4. gates y evaluaciones sin `RouteMatch` HTTP ya reciben `tenant.id` y `authorization.scope` normalizados cuando el runtime los expone,
+5. el comportamiento sigue siendo opt-in via `authorization.authority.scope_resolution.enabled`.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Context/AuthorizationContextFactory.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Context/TenantScopeResolver.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationContextFactoryRuntimeContextTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationMultiSurfaceIntegrationTest.php`
+
+**Resultado operativo**
+
+- Authorization ya normaliza tenant/scope automáticamente en surfaces `cli` y `worker` sin exigir contexto manual,
+- los gates pueden decidir con metadata multi-surface consistente usando el mismo pipeline que HTTP,
+- y el subsistema queda mejor preparado para workers persistentes antes de introducir invalidación distribuida.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorizationContextFactoryRuntimeContextTest.php tests\Unit\AuthorizationMultiSurfaceIntegrationTest.php tests\Unit\AuthorizationManagerAuthorityEarlyGateTest.php tests\Unit\MetadataAuthorizationContextEnricherTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php tests\Unit\ControllerEngineTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php` → **71 tests / 249 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- invalidacion distribuida/multi-worker para authority cache y relaciones,
+- commands operativos de grant/auditoría más ricos,
+- providers externos adicionales,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Corte ejecutado
+
+### DV-AUTHZ-010D
+
+**Tipo:** Consistencia e invalidación generacional inicial
+**Estado:** Cerrado
+**Objetivo:** Introducir una primera capa de versionado/invalidez para authority memoization y revocaciones relacionales, compatible con workers persistentes.
+
+**Alcance ejecutado**
+
+1. se añadió `AuthorizationConsistencyInterface` con implementación `VersionedAuthorizationConsistency` sobre `VersionAuthorityInterface`,
+2. `RequestScopedAuthorityMemoizationCache` ya incorpora la versión compuesta del dominio authority en su clave de memoization,
+3. `InMemoryRelationshipRepository` y `DatabaseRelationshipRepository` bump-ean generaciones de relaciones cuando revocan entradas,
+4. `AuthorizationServiceProvider` registra el servicio de consistencia, defaults `authorization.consistency.*` y el comando `authz:consistency:invalidate`,
+5. la invalidación puede dispararse por `principal`, `scope`, `principal_scope` o `global`, sin romper el comportamiento request-scoped existente.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationConsistencyInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Consistency/VersionedAuthorizationConsistency.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/RequestScopedAuthorityMemoizationCache.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/InMemoryRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/DatabaseRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyInvalidateCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+
+**Resultado operativo**
+
+- Authorization ya puede invalidar memoization authority sin reiniciar el worker,
+- las revocaciones ReBAC ya propagan un bump de consistencia reutilizable por futuros caches distribuidos,
+- existe una superficie CLI explícita para invalidación operativa,
+- y el módulo queda listo para conectar un backend externo real de versiones sin rediseñar el contrato.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorityMemoizationAndCacheTest.php tests\Unit\AuthorizationConsistencyVersioningTest.php tests\Unit\AuthorizationConsistencyInvalidateCommandTest.php tests\Unit\InMemoryRelationshipRepositoryTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationRelationshipCommandsTest.php` → **37 tests / 113 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorityMemoizationAndCacheTest.php tests\Unit\AuthorizationConsistencyVersioningTest.php tests\Unit\AuthorizationConsistencyInvalidateCommandTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\InMemoryRelationshipRepositoryTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\AuthorizationContextFactoryRuntimeContextTest.php tests\Unit\AuthorizationMultiSurfaceIntegrationTest.php tests\Unit\AuthorizationManagerAuthorityEarlyGateTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php tests\Unit\MetadataAuthorizationContextEnricherTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php` → **77 tests / 234 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- backend multi-worker/multi-node real para `AuthorizationConsistencyInterface`,
+- commands operativos de grant/auditoría más ricos,
+- providers externos adicionales,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Siguiente corte recomendado
+
+### DV-AUTHZ-010E — SIGUIENTE
+
+`Backend Externo De Consistencia Y Auditoria Operativa Enriquecida`
 
 Foco:
 

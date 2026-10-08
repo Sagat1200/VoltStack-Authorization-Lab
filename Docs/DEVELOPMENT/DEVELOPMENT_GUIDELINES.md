@@ -39,6 +39,7 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - configuracion `authorization.manifest.enabled` y `authorization.manifest.path`,
 - `ManifestRequirementsEnforcementStage` para enforcement directo desde metadata de manifest,
 - `AttributeConditionEvaluator` para ABAC runtime declarativo,
+- `RelationshipRepositoryInterface`, `InMemoryRelationshipRepository`, `DatabaseRelationshipRepository` y `RelationshipEvaluator` para una primera capa ReBAC opt-in con backend persistente inicial,
 - fingerprint visible en `DecisionResult::metadataFingerprint()` propagado desde planner,
 - comandos CLI `authz:manifest:compile` y `authz:manifest:clear`,
 - `AuthorityMemoizationCacheInterface`, `RequestScopedAuthorityMemoizationCache` y `CachedAuthorityRepository`,
@@ -46,7 +47,7 @@ Al corte actual, `Quantum/Authorization` ya cuenta con un primer bloque funciona
 - `GateRegistry`,
 - `PolicyRegistry` y `PolicyDispatcher`,
 - atributos `#[Authorize]`, `#[AuthorizeWhen]` y `#[PublicAccess]`,
-- DSL `Route::authorizeWhen()` y `Route::authorizeWhenAll()`,
+- DSL `Route::authorizeRelated()`, `Route::authorizeWhen()` y `Route::authorizeWhenAll()`,
 - DSL runtime `Condition::*` para condiciones reutilizables,
 - proyeccion de metadata reusable sobre `Quantum/Metadata`,
 - contracts y atributos declarativos de policy,
@@ -69,7 +70,7 @@ Conclusión operativa:
 
 - Authorization ya no parte desde un namespace vacio,
 - ya supero la V1 minima y hoy se encuentra en una V1+ consolidada,
-- y la siguiente prioridad ya no es fundacional, sino de tenancy automatica cross-surface, providers externos, ReBAC y performance distribuida.
+- y la siguiente prioridad ya no es fundacional, sino de backends externos de consistencia, providers externos y performance distribuida.
 
 ## Fuentes de verdad
 
@@ -370,12 +371,12 @@ No continuar el desarrollo con estos patrones:
 
 ### Fase sugerida inmediata
 
-`DV-AUTHZ-009: ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
+`DV-AUTHZ-010E: Backend Externo De Consistencia Y Auditoria Operativa Enriquecida`
 
 Documentos objetivo:
 
-- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md` (ReBAC sujeto↔recurso)
-- `13_MULTI_TENANT_AUTHORIZATION_AND_DATA_ISOLATION_SYSTEM.md` (tenant/scope resolver automatico)
+- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md` (gobernanza y operacion de relaciones sujeto↔recurso)
+- `13_MULTI_TENANT_AUTHORIZATION_AND_DATA_ISOLATION_SYSTEM.md` (tenant/scope resolver automatico cross-surface)
 - `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md` (providers externos e invalidacion)
 - `20_AUTHORIZATION_DELEGATION_IMPERSONATION_CAPABILITIES_AND_SERVICE_TO_SERVICE_SYSTEM.md`
 - `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md` (adaptive/risk-based access)
@@ -385,11 +386,11 @@ Documentos objetivo:
 
 ### Entregables minimos sugeridos
 
-1. introducir relaciones explícitas sujeto↔recurso para ReBAC (`owner`, `member`, `manager`, etc.),
-2. resolver `Scope` y tenant automáticamente desde request, route y superficies no HTTP,
-3. añadir backend distribuido de invalidación/memoization para authority cache,
-4. endurecer providers externos y lifecycle de sincronización/auditoría,
-5. abrir commands operativos de auditoría/revocación sobre grants y relaciones,
+1. conectar `AuthorizationConsistencyInterface` a un backend externo real de versiones/invalidez,
+2. coordinar consistencia multi-worker y multi-node sin romper el modo opt-in,
+3. añadir backend distribuido de invalidación/memoization para authority cache y relaciones,
+4. providers externos adicionales y lifecycle operativo de sincronización/auditoría,
+5. ampliar commands operativos de auditoría/revocación sobre grants y relaciones,
 6. extender ABAC contextual hacia risk scoring y adaptive access.
 
 ## Corte anterior ejecutado

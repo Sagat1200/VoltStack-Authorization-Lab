@@ -39,6 +39,8 @@ En `vendor/voltstack/framework/src/Quantum/Authorization` ya existen:
 - `TenantScopeResolverInterface` y `TenantScopeResolver` para proyeccion automática de scope (opt-in),
 - `ControllerEngine` proyectando tenant HTTP real al contexto de Authorization antes del authorize(),
 - `TenantScopeResolver` leyendo señales runtime (`Request`, `RouteMatch`, `controller.security.context`, route params`) para derivar tenant/scope en usos directos del planner/manager,
+- `RelationshipRepositoryInterface`, `InMemoryRelationshipRepository`, `DatabaseRelationshipRepository` y `RelationshipEvaluator` para una primera capa ReBAC opt-in con backend persistente inicial,
+- metadata declarativa `relation` en `Authorize`, `Route::authorize()` y `Route::authorizeRelated()`,
 - atributos `#[AuthorizeWhen]` y DSL `Route::authorizeWhen()/authorizeWhenAll()`,
 - y commands CLI `authz:manifest:compile` + `authz:manifest:clear` registrados via `commands()` del provider.
 
@@ -66,7 +68,7 @@ Conclusión:
 
 - el trabajo fundacional ya quedo aterrizado,
 - la integracion declarativa ya es explainable y tiene ABAC runtime utilizable,
-- y el siguiente movimiento debe cerrar tenancy automatica, ReBAC, providers externos y cache distribuida.
+- y el siguiente movimiento debe profundizar invalidacion distribuida, providers externos y cache distribuida.
 
 ## Objetivo del primer cierre real
 
@@ -444,7 +446,7 @@ Adicionalmente, el corte DV-AUTHZ-005 ya materializo el siguiente nivel de madur
    - `ControllerSecurityPlannerBridgeTest` 5 tests (convergencia Security ↔ Planner),
    - **SUITE COMPLETA ACUMULADA:** 107 Unit tests / 393 assertions → exit 0 + 74 Feature Authorization/Security tests / 901 assertions → exit 0 salvo 1 error pre-existente `AuthManager::password_expired` no relacionado.
 
-## Estado actual - DV-AUTHZ-007 / DV-AUTHZ-008
+## Estado actual - DV-AUTHZ-007 / DV-AUTHZ-009
 
 **Material nuevo incorporado en runtime:**
 
@@ -457,40 +459,46 @@ Adicionalmente, el corte DV-AUTHZ-005 ya materializo el siguiente nivel de madur
 7. Propagación estable de `condition` por metadata resolver, payload factory, enricher y manifest store.
 8. Primera capa de tenant/scope resolver automático (opt-in) ya integrada con `AuthorizationContextFactory`, `AuthorizationManager`, `ManifestRequirementsEnforcementStage` y `ControllerEngine`.
 9. El inner authority repository se ajustó a ciclo `scoped` para convivir correctamente con `DatabaseInterface` y memoization request-scoped.
-10. Regresión focalizada actual del subsistema: `--filter=Authorization` → **87 tests / 269 assertions exit 0**, más `ControllerEngineTest` **23 tests exit 0** y `MetadataEngineTest` **13 tests exit 0**.
+10. Primera capa ReBAC opt-in ya integrada con `RelationshipRepositoryInterface`, `InMemoryRelationshipRepository`, `DatabaseRelationshipRepository`, `RelationshipEvaluator`, metadata `relation`, `Route::authorizeRelated()` y enforcement runtime en `ManifestRequirementsEnforcementStage`.
+11. Regresión focalizada actual del corte de consistencia inicial: consistency+ReBAC+multi-surface **77 tests / 234 assertions exit 0** (2 deprecations no bloqueantes).
 
-## Siguiente corte recomendado
+## Corte ejecutado
 
-### DV-AUTHZ-009
+### DV-AUTHZ-010D
 
-`ReBAC, Tenant Resolver Automatico Y Cache Distribuida De Authority`
+`Consistencia E Invalidacion Generacional Inicial`
 
 Alcance sugerido:
 
-- relaciones explícitas sujeto↔recurso (`owner`, `member`, `manager`, etc.) y evaluador ReBAC básico,
-- profundizar la resolución automática de tenant/scope desde request, route y superficies no HTTP,
-- backend distribuido para memoization/invalidation de authority cache,
-- providers externos adicionales y lifecycle operativo de sincronización/auditoría,
-- commands de auditoría/revocación para grants y relaciones.
+- introducir `AuthorizationConsistencyInterface` como contrato de versionado del subsistema,
+- versionar la memoization de authority sin romper el cache request-scoped existente,
+- propagar invalidación desde revocaciones relacionales,
+- abrir una surface operativa CLI para invalidar generaciones manualmente.
 
 Estado del corte:
-
-- la V1+ consolidada ya existe: explainability, memoization, early-gate, bridge opcional, DBAL authority y ABAC declarativo están operativos,
-- el siguiente cuello de botella ya no está en el planner sino en relaciones, tenancy automática y consistencia distribuida,
-- por lo que el siguiente trabajo debe materializar modelos relacionales y operación multi-worker.
+- planner, authority, explainability, memoization, ABAC declarativo, tenancy cross-surface inicial y ReBAC opt-in con driver persistente inicial y tooling operativo básico ya están operativos,
+- se añadió `AuthorizationConsistencyInterface` con implementación `VersionedAuthorizationConsistency` sobre `VersionAuthorityInterface`,
+- la memoization authority ya es sensible a generaciones (`global`, `principal`, `scope`, `principal_scope`),
+- y el siguiente cuello de botella ya no está en el planner sino en conectar esa consistencia a un backend multi-worker real.
 
 Entregables minimos:
 
-1. `RelationshipRepositoryInterface` o equivalente para relaciones sujeto↔recurso,
-2. `TenantResolverInterface`/scope resolver automático integrado con `AuthorizationContext`,
-3. backend distribuido de cache/invalidation para authority,
-4. tooling CLI de auditoría/revocación,
-5. tests de ReBAC, tenancy y consistency cross-worker.
+1. contrato de consistencia para authority y relationships,
+2. claves de memoization sensibles a generación,
+3. invalidación desde revocaciones relacionales,
+4. command CLI de invalidación,
+5. documentación DEVELOPMENT sincronizada.
 
 Resultado esperado:
 
-- **Cierre parcial DV-AUTHZ-009** (ReBAC básico + tenancy automática + cache distribuida inicial),
+- **Cierre DV-AUTHZ-010D** (consistencia e invalidación generacional inicial),
 - suite del subsistema ampliada sobre la base actual sin romper el comportamiento opt-in.
+
+## Siguiente corte recomendado
+
+### DV-AUTHZ-010E
+
+`Backend Externo De Consistencia Y Auditoria Operativa Enriquecida`
 
 ## Mapa de clases prioritarias
 
@@ -572,29 +580,27 @@ Una fase se considera realmente cerrada solo si:
 
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-009
+### DV-AUTHZ-010E
 
 Alcance sugerido:
 
-- relaciones explícitas sujeto↔recurso para ReBAC,
-- resolver tenant/scope automático,
-- invalidación distribuida/multi-worker de authority cache,
+- backend externo multi-worker para `AuthorizationConsistencyInterface`,
 - tooling de auditoría/revocación,
 - y providers externos adicionales.
 
 Estado del corte:
 
-- planner, authority, explainability, memoization y ABAC declarativo ya están operativos,
-- el siguiente trabajo debe endurecer el módulo para despliegues multi-tenant y multi-worker.
+- planner, authority, explainability, memoization versionada, ABAC declarativo, tenancy cross-surface inicial y ReBAC opt-in con driver persistente inicial y tooling operativo básico ya están operativos,
+- el siguiente trabajo debe endurecer el módulo para despliegues multi-tenant y multi-worker reales.
 
 Entregables minimos:
 
-1. repositorio/contrato de relaciones,
-2. tenant resolver automático,
-3. backend distribuido de invalidación,
-4. commands operativos,
+1. backend externo de invalidación/versionado,
+ 2. strategy de selective flush por scope o principal sobre el backend externo,
+3. auditoría/revocación operativa enriquecida,
+4. providers externos adicionales,
 5. cobertura de tests cross-worker/multi-surface.
 
 Resultado esperado:
 
-- VoltStack pasa de una V1+ consolidada a una V1+ multi-tenant y relacional inicial, manteniendo el enfoque opt-in y sin romper la base actual.
+- VoltStack pasa de una V1+ multi-tenant relacional consistente inicial a una base operativa multi-worker mas completa, manteniendo el enfoque opt-in y sin romper la base actual.
