@@ -371,27 +371,29 @@ No continuar el desarrollo con estos patrones:
 
 ### Fase sugerida inmediata
 
-`DV-AUTHZ-010E: Backend Externo De Consistencia Y Auditoria Operativa Enriquecida`
+`DV-AUTHZ-010K: Shadow delegation grants + revocation policy engine + selective flush cross-worker`
 
 Documentos objetivo:
 
-- `12_ROLE_PERMISSION_RBAC_ABAC_AND_REBAC_INTEGRATION_SYSTEM.md` (gobernanza y operacion de relaciones sujeto↔recurso)
-- `13_MULTI_TENANT_AUTHORIZATION_AND_DATA_ISOLATION_SYSTEM.md` (tenant/scope resolver automatico cross-surface)
-- `19_AUTHORIZATION_EXTENSIBILITY_PLUGIN_PROVIDER_AND_CUSTOM_EVALUATOR_SYSTEM.md` (providers externos e invalidacion)
-- `20_AUTHORIZATION_DELEGATION_IMPERSONATION_CAPABILITIES_AND_SERVICE_TO_SERVICE_SYSTEM.md`
-- `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md` (adaptive/risk-based access)
-- `27_AUTHORIZATION_STATE_CONSISTENCY_CONCURRENCY_AND_DISTRIBUTED_COORDINATION_SYSTEM.md`
-- `29_AUTHORIZATION_ADMINISTRATION_MANAGEMENT_AND_OPERATIONAL_TOOLING_SYSTEM.md`
-- `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md`
+- `20_AUTHORIZATION_DELEGATION_IMPERSONATION_CAPABILITIES_AND_SERVICE_TO_SERVICE_SYSTEM.md` (shadow grants temporales, revocación por policy)
+- `23_AUTHORIZATION_CONDITIONAL_CONTEXTUAL_AND_RISK_BASED_ACCESS_SYSTEM.md` (rate-limit por principal, step-up multi-factor)
+- `27_AUTHORIZATION_STATE_CONSISTENCY_CONCURRENCY_AND_DISTRIBUTED_COORDINATION_SYSTEM.md` (selective flush distribuido cross-worker)
+- `29_AUTHORIZATION_ADMINISTRATION_MANAGEMENT_AND_OPERATIONAL_TOOLING_SYSTEM.md` (doctor para overrides por tenant y tiempos de evaluación por stage)
+- `31_AUTHORIZATION_PERFORMANCE_COMPILATION_OPTIMIZATION_AND_RESOURCE_GOVERNANCE_SYSTEM.md` (budgets y gobernanza de recursos)
 
 ### Entregables minimos sugeridos
 
-1. conectar `AuthorizationConsistencyInterface` a un backend externo real de versiones/invalidez,
-2. coordinar consistencia multi-worker y multi-node sin romper el modo opt-in,
-3. añadir backend distribuido de invalidación/memoization para authority cache y relaciones,
-4. providers externos adicionales y lifecycle operativo de sincronización/auditoría,
-5. ampliar commands operativos de auditoría/revocación sobre grants y relaciones,
-6. extender ABAC contextual hacia risk scoring y adaptive access.
+1. añadir shadow delegation grants temporales con `revoked_at` y revocación programática por policy,
+2. extender el adaptive access con rate-limit granular por principal y step-up multi-factor,
+3. selective flush distribuido observable por principal/scope en driver cache backend compartido real (Redis-like),
+4. comandos doctor para diagnosticar overrides por tenant y tiempos de evaluación por stage,
+5. budgets y gobernanza de recursos en el pipeline de authorization.
+
+### Avance ya disponible dentro de la fase
+
+- `AuthorizationDriverRegistry` ya permite registrar drivers personalizados para `authority`, `relationships` y `consistency` desde providers externos,
+- **nuevo:** `CacheVersionAuthority` + `consistency.driver=cache` ya aportan un backend concreto compartido sobre cualquier store de `Quantum/Cache` (FileStore, Redis, APCu, DB, etc.),
+- el siguiente paso debe concentrarse en un backend remoto nativo multi-node real y en invalidación distribuida observable, no en volver a abrir extensibilidad básica.
 
 ## Corte anterior ejecutado
 

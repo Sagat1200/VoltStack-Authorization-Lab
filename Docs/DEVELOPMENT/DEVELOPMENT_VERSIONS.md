@@ -13,9 +13,9 @@ Sirve como control operativo de:
 
 ## Corte actual
 
-- Fecha de actualizacion: `2026-10-07`
-- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database, memoization request-scoped con versionado generacional inicial, early-gate opt-in, ABAC runtime declarativo, tenant/scope automático opt-in ya conectado a metadata/routing/controllers/command/job runtime y una primera capa ReBAC opt-in integrada al pipeline declarativo mediante metadata relation con drivers memory y database.`
-- Clasificacion del corte: `V1+ multi-tenant relacional consistente inicial`
+- Fecha de actualizacion: `2026-10-10`
+- Estado general: `Quantum/Authorization ya dispone de un core operativo consolidado, planner explainable, authority repositories InMemory y Database + RemoteCache, memoization request-scoped con versionado generacional distribuido, early-gate opt-in, ABAC runtime declarativo, tenant/scope automático opt-in ya conectado a metadata/routing/controllers/command/job runtime, una capa ReBAC opt-in integrada al pipeline declarativo mediante metadata relation con drivers memory, database y remote-cache, backend persistente compartido de consistencia para authority/relationships via filesystem y cache lock-safe con auditoria de bumps distribuidos, tooling CLI operativo para listar/otorgar/revocar grants de authority/relationships/delegation sobre drivers memory y database, una capa inicial de adaptive access, y una capa completa de Delegation/Impersonation + Service-to-Service Principals opt-in con evaluación semántica real en el manifest stage.`
+- Clasificacion del corte: `V1+ multi-tenant relacional consistente operativo con adaptive access inicial + delegation impersonation y s2s principals`
 
 ## Resumen ejecutivo
 
@@ -845,20 +845,516 @@ Foco entregado COMPLETO:
 
 **Gap natural siguiente**
 
-- backend multi-worker/multi-node real para `AuthorizationConsistencyInterface`,
+- backend remoto multi-node real para `AuthorizationConsistencyInterface` mas alla del backend compartido por filesystem,
 - commands operativos de grant/auditoría más ricos,
 - providers externos adicionales,
 - y politicas contextuales/risk-based de mayor nivel.
 
-## Siguiente corte recomendado
+## Corte ejecutado
 
-### DV-AUTHZ-010E — SIGUIENTE
+### DV-AUTHZ-010E — CERRADO
 
 `Backend Externo De Consistencia Y Auditoria Operativa Enriquecida`
+
+**Objetivo:** Conectar `AuthorizationConsistencyInterface` a un backend persistente compartido real, manteniendo el modo opt-in y abriendo una superficie de inspeccion operativa de generaciones.
+
+**Alcance ejecutado**
+
+1. se añadió `Quantum\Cache\FileVersionAuthority` como backend lock-safe persistente para scopes/versiones,
+2. `AuthorizationServiceProvider` ahora soporta `authorization.consistency.driver=local|file|filesystem|shared`,
+3. `authorization.consistency.file.path` permite externalizar el storage de generaciones sin tocar el contrato publico del modulo,
+4. `VersionedAuthorizationConsistency` expone `describeAuthority()` y `describeRelationships()` para auditoria operativa de segmentos `global|principal|scope|principal_scope`,
+5. se añadió el comando `authz:consistency:report` y se enriquecio `authz:consistency:invalidate --verbose` con backend y namespace efectivos,
+6. se validó el flujo cross-instance para demostrar que dos `Application` distintos pueden observar la misma invalidación cuando comparten el mismo storage path.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Cache/FileVersionAuthority.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Consistency/VersionedAuthorizationConsistency.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyReportCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyInvalidateCommand.php`
+- `vendor/voltstack/framework/tests/Unit/FileVersionAuthorityTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationConsistencyReportCommandTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderBridgeAndFlagsTest.php`
+
+**Resultado operativo**
+
+- Authorization deja de depender solo de memoria local del proceso para versionar authority y relationships,
+- la memoization request-scoped ya puede invalidarse con una fuente persistente compartida entre workers/aplicaciones que compartan storage,
+- existe una superficie CLI read-only para inspeccionar generaciones activas antes de invalidarlas,
+- y el corte mantiene compatibilidad hacia atras porque `authorization.consistency.driver` sigue arrancando en `local` por defecto.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\FileVersionAuthorityTest.php tests\Unit\AuthorizationConsistencyVersioningTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationConsistencyInvalidateCommandTest.php tests\Unit\AuthorizationConsistencyReportCommandTest.php tests\Unit\AuthorityMemoizationAndCacheTest.php` → **30 tests / 93 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\InMemoryRelationshipRepositoryTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php tests\Unit\AuthorizationContextFactoryRuntimeContextTest.php tests\Unit\AuthorizationMultiSurfaceIntegrationTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php` → **42 tests / 131 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- backend remoto multi-node real para `AuthorizationConsistencyInterface` mas alla del filesystem compartido,
+- providers externos adicionales,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Corte ejecutado
+
+### DV-AUTHZ-010F — CERRADO
+
+`Providers Remotos, Grants Operativos Y Adaptive Access Inicial`
+
+**Objetivo:** Abrir tooling operativo real para grants de authority y hacer que las mutaciones de RBAC/direct grants participen del mismo pipeline de consistencia que ya usan relaciones y memoization.
+
+**Alcance ejecutado**
+
+1. se añadió `AuthorityAdministrationInterface` como contrato administrativo explícito para listar, otorgar y revocar grants de authority,
+2. `InMemoryAuthorityRepository` y `DatabaseAuthorityRepository` ya implementan administración operativa homogénea (`listGrants`, `grantRole`, `grantPermission`, `revokeRole`, `revokePermission`),
+3. las mutaciones de grants ahora invalidan generaciones de `authority` mediante `AuthorizationConsistencyInterface`,
+4. `AuthorizationServiceProvider` expone `AuthorityAdministrationInterface` desde el repositorio interno incluso cuando el repositorio de lectura está envuelto por `CachedAuthorityRepository`,
+5. se añadieron los comandos `authz:authority:list`, `authz:authority:grant` y `authz:authority:revoke`,
+6. el driver `database` ahora no solo resuelve grants, también soporta administración operativa exacta sobre tablas de grants y mantiene consistencia con memoization.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorityAdministrationInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/InMemoryAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DatabaseAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationAuthorityListCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationAuthorityGrantCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationAuthorityRevokeCommand.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationAuthorityCommandsTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorityModelAndRepositoryTest.php`
+- `vendor/voltstack/framework/tests/Unit/DatabaseAuthorityRepositoryTest.php`
+
+**Resultado operativo**
+
+- Authorization ya dispone de tooling CLI simétrico para authority y relationships,
+- los grants RBAC/directos pueden auditarse y modificarse sin abrir APIs ad hoc fuera del módulo,
+- las mutaciones de authority ya hacen bump de consistencia, reduciendo drift frente a caches request-scoped y workers persistentes,
+- y el módulo queda mejor preparado para futuros providers remotos porque la administración ya no depende de helpers concretos del repo en memoria.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorityModelAndRepositoryTest.php tests\Unit\DatabaseAuthorityRepositoryTest.php tests\Unit\AuthorizationServiceProviderDatabaseAuthorityTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorityMemoizationAndCacheTest.php tests\Unit\AuthorizationManagerAuthorityEarlyGateTest.php tests\Unit\RuntimeRequestIsolationTest.php` → **50 tests / 167 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorizationAuthorityCommandsTest.php tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\AuthorizationConsistencyVersioningTest.php tests\Unit\AuthorizationConsistencyInvalidateCommandTest.php tests\Unit\AuthorizationConsistencyReportCommandTest.php tests\Unit\AuthorizationContextFactoryRuntimeContextTest.php tests\Unit\AuthorizationMultiSurfaceIntegrationTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php tests\Unit\AuthorizationManagerDatabaseRelationshipTest.php` → **54 tests / 171 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorizationServiceProviderDatabaseRelationshipTest.php tests\Unit\AuthorizationServiceProviderDatabaseAuthorityTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\DatabaseRelationshipRepositoryTest.php tests\Unit\DatabaseAuthorityRepositoryTest.php` → **22 tests / 70 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- backend remoto multi-node real para `AuthorizationConsistencyInterface` mas alla del filesystem compartido,
+- providers externos adicionales,
+- y politicas contextuales/risk-based de mayor nivel.
+
+## Corte ejecutado
+
+### DV-AUTHZ-010G — CERRADO
+
+`Providers Remotos Y Adaptive Access Inicial`
+
+**Objetivo:** Activar una primera capa explícita de adaptive access en `Authorization`, aprovechando la señal de riesgo ya proyectada desde `Auth` y haciendo que el pipeline pueda devolver challenge/deny por thresholds antes de gate/policy.
+
+**Alcance ejecutado**
+
+1. se añadió `AdaptiveAccessStage` al planner de `Authorization` como etapa temprana del pipeline,
+2. `authorization.adaptive_access.*` ahora permite habilitar thresholds de `step_up` y `deny`, definir claves de riesgo y parametrizar endpoints/metadatos de challenge,
+3. `AuthorizationContextFactory` normaliza aliases de riesgo (`auth_risk_score`, `auth_risk_level`) y assurance desde el contexto de autenticación,
+4. `AuthorizationExceptionMapper` ahora proyecta headers/extensiones de riesgo y step-up cuando la decisión viene de adaptive access,
+5. el pipeline puede devolver `DecisionResult::challenge()` con `auth.step_up_required` o `DecisionResult::deny()` con `auth.risk_denied` sin romper el resto del módulo declarativo.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/AdaptiveAccessStage.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Context/AuthorizationContextFactory.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Exceptions/AuthorizationExceptionMapper.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationManagerTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderTest.php`
+- `vendor/voltstack/framework/tests/Unit/QuantumExceptionHandlerTest.php`
+
+**Resultado operativo**
+
+- Authorization ya no depende solo de ABAC declarativo manual para reaccionar al riesgo,
+- un score alto puede forzar `step_up` o bloqueo temprano dentro del propio pipeline de autorización,
+- los consumers HTTP reciben headers reutilizables (`X-Auth-Step-Up`, `X-Auth-Risk-*`) compatibles con la semántica ya usada por `Auth`,
+- y el módulo gana una base inicial para politicas contextuales más ricas sin acoplar toda la lógica al subsistema de autenticación.
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorizationManagerTest.php tests\Unit\AuthorizationServiceProviderTest.php tests\Unit\QuantumExceptionHandlerTest.php` → **38 tests / 148 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationAuthorityCommandsTest.php tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\AuthorizationConsistencyReportCommandTest.php tests\Unit\AuthorizationConsistencyInvalidateCommandTest.php tests\Unit\AuthorizationMultiSurfaceIntegrationTest.php tests\Unit\ManifestRequirementsEnforcementStageTest.php` → **58 tests / 173 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorizationContextFactoryRuntimeContextTest.php tests\Unit\ControllerSecurityContextFactoryTest.php` → **12 tests / 84 assertions, exit 0**
+- `vendor\bin\phpunit tests\Unit\AuthorizationServiceProviderDatabaseAuthorityTest.php tests\Unit\DatabaseAuthorityRepositoryTest.php tests\Unit\AuthorityMemoizationAndCacheTest.php` → **15 tests / 40 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap natural siguiente**
+
+- backend remoto multi-node real para `AuthorizationConsistencyInterface`,
+- providers externos adicionales para authority/relationships,
+- y politicas adaptativas mas finas por tenant/canal/operacion.
+
+## Siguiente corte recomendado
+
+### DV-AUTHZ-010H — SIGUIENTE
+
+`Providers Remotos Y Consistencia Distribuida Real`
+
+### Avance parcial actual sobre DV-AUTHZ-010H
+
+`Extensibilidad formal de drivers/providers`
+
+**Objetivo parcial ejecutado:** Desacoplar `AuthorizationServiceProvider` de la resolución fija `memory|database|file` y abrir un punto estable para que paquetes externos registren drivers propios de `authority`, `relationships` y `consistency`.
+
+**Alcance ejecutado**
+
+1. se añadió `AuthorizationDriverRegistry` como registry singleton para registrar factories de drivers personalizados,
+2. `AuthorizationServiceProvider` ahora consulta esa registry antes de caer en los drivers built-in de authority, relationships y consistency,
+3. un provider externo ya puede registrar adapters remotos sin parchear el core del módulo,
+4. se cubrió la resolución real desde container para drivers personalizados en las tres superficies.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationDriverRegistry.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderTest.php`
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests\Unit\AuthorizationServiceProviderTest.php tests\Unit\AuthorizationServiceProviderBridgeAndFlagsTest.php tests\Unit\AuthorizationServiceProviderDatabaseAuthorityTest.php tests\Unit\AuthorizationServiceProviderDatabaseRelationshipTest.php` → **26 tests / 62 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests\Unit\AuthorizationAuthorityCommandsTest.php tests\Unit\AuthorizationRelationshipCommandsTest.php tests\Unit\AuthorizationConsistencyReportCommandTest.php tests\Unit\AuthorizationConsistencyInvalidateCommandTest.php tests\Unit\AuthorizationManagerTest.php tests\Unit\AuthorizationMultiSurfaceIntegrationTest.php` → **44 tests / 131 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap restante para cerrar DV-AUTHZ-010H**
+
+- backend remoto multi-node real para `AuthorizationConsistencyInterface`,
+- selective flush remoto por `principal` y/o `scope`,
+- adapters remotos concretos para `authority`/`relationships`,
+- y observabilidad operativa de invalidación distribuida.
+
+### Avance parcial adicional sobre DV-AUTHZ-010H
+
+`Backend compartido de consistency sobre CacheModule (driver cache configurable)`
+
+**Objetivo parcial ejecutado:** Añadir un adapter concreto de `VersionAuthorityInterface` sobre `Quantum/Cache` y habilitar `authorization.consistency.driver=cache` con store/prefix/ttl configurables, obteniendo un backend multi-instancia compartido sin inventar un storage nuevo.
+
+**Alcance ejecutado**
+
+1. se añadió `CacheVersionAuthority` implementando `VersionAuthorityInterface` sobre cualquier `StoreInterface` del CacheModule (FileStore, Redis, APCu, DB, etc.),
+2. `VersionedAuthorizationConsistency` ya puede operar con ese adapter sin cambios de contrato,
+3. `AuthorizationServiceProvider` ahora reconoce `consistency.driver=cache` y crea el adapter via `CacheManager::store()`,
+4. el block de config `authorization.consistency.cache.*` expone `store`, `prefix` y `ttl_seconds`,
+5. se valida que la invalidación de un proceso se observa desde otro proceso cuando ambos comparten el mismo store físico (FileStore compartido).
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Cache/CacheVersionAuthority.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/CacheVersionAuthorityTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationServiceProviderBridgeAndFlagsTest.php`
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests/Unit/CacheVersionAuthorityTest.php tests/Unit/FileVersionAuthorityTest.php tests/Unit/AuthorizationServiceProviderTest.php tests/Unit/AuthorizationServiceProviderBridgeAndFlagsTest.php tests/Unit/AuthorizationServiceProviderDatabaseAuthorityTest.php tests/Unit/AuthorizationServiceProviderDatabaseRelationshipTest.php` → **34 tests / 84 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests/Unit/AuthorizationConsistencyReportCommandTest.php tests/Unit/AuthorizationConsistencyInvalidateCommandTest.php tests/Unit/AuthorizationConsistencyVersioningTest.php tests/Unit/AuthorityMemoizationAndCacheTest.php tests/Unit/DatabaseRelationshipRepositoryTest.php tests/Unit/AuthorizationManagerAuthorityEarlyGateTest.php tests/Unit/AuthorizationMultiSurfaceIntegrationTest.php tests/Unit/AuthorizationAuthorityCommandsTest.php tests/Unit/AuthorizationRelationshipCommandsTest.php` → **53 tests / 150 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap restante para cerrar DV-AUTHZ-010H**
+
+- selective flush remoto observado y auditado,
+- adapters remotos concretos para `authority` y `relationships` sobre la registry abierta,
+- y observabilidad operativa + comandos de doctor sobre invalidación distribuida.
+
+### Tercer avance parcial sobre DV-AUTHZ-010H
+
+`Observabilidad de selective flush + command doctor de consistencia`
+
+**Objetivo parcial ejecutado:** Cerrar la brecha “observabilidad + doctor” del plan: registrar `reason`/`last_bump_at`/contadores por segmento en el flujo de invalidación, exponerlos programáticamente y superponer un comando `authz:consistency:doctor` que diagnostique driver, backend (file/cache/custom), config declarada y auditoria de bumps del proceso actual.
+
+**Alcance ejecutado**
+
+1. `AuthorizationConsistencyInterface` amplía las firmas `invalidateAuthority(..., ?string $reason = null)` e `invalidateRelationships(..., ?string $reason = null)` y añade `inspect(): array` genérico para backends custom,
+2. `VersionedAuthorizationConsistency` ahora mantiene `lastBumpAt`, `bumpCounters()`, `bumpReasons()`, `lastBumpTimestamps()` por segmento (`authority.global`, `authority.principal`, `relationships.scope`, etc.),
+3. `describeVersionAuthority()` reporta `kind=file` (storage_path) y `kind=cache` (store class + prefix), y esa proyección vuelca a `inspect()` + report/doctor commands,
+4. `authz:consistency:report` JSON incluye `inspect` y `last_bump_at`, mientras que la salida humana `--verbose` muestra `Backend details` y `Bump counters`,
+5. `authz:consistency:invalidate` acepta `--reason` y expone `reason` + `inspect()` en JSON,
+6. nuevo `authz:consistency:doctor` emite `ok`, `is_versioned`, la config activa (`consistency_driver_config`) y `inspect`; en `--verbose` detalla bump counters con sus razones; soporta tanto `VersionedAuthorizationConsistency` como backends custom vía la proyección genérica de `inspect()`,
+7. `AuthorizationServiceProvider::commands()` registra el doctor sin configuración extra.
+
+**Evidencia**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationConsistencyInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Consistency/VersionedAuthorizationConsistency.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyReportCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyInvalidateCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyDoctorCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationConsistencyVersioningTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationConsistencyReportCommandTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationConsistencyInvalidateCommandTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationConsistencyDoctorCommandTest.php`
+
+**Validacion ejecutada**
+
+- `vendor\bin\phpunit tests/Unit/CacheVersionAuthorityTest.php tests/Unit/FileVersionAuthorityTest.php tests/Unit/AuthorizationServiceProviderTest.php tests/Unit/AuthorizationServiceProviderBridgeAndFlagsTest.php tests/Unit/AuthorizationPublishedConfigGateTest.php tests/Unit/AuthorizationConsistencyVersioningTest.php tests/Unit/AuthorizationConsistencyReportCommandTest.php tests/Unit/AuthorizationConsistencyInvalidateCommandTest.php tests/Unit/AuthorizationConsistencyDoctorCommandTest.php` → **50 tests / 184 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests/Unit/AuthorizationConsistencyReportCommandTest.php tests/Unit/AuthorizationConsistencyInvalidateCommandTest.php tests/Unit/AuthorizationConsistencyVersioningTest.php tests/Unit/AuthorizationConsistencyDoctorCommandTest.php tests/Unit/AuthorityMemoizationAndCacheTest.php tests/Unit/AuthorizationManagerAuthorityEarlyGateTest.php tests/Unit/AuthorizationMultiSurfaceIntegrationTest.php tests/Unit/AuthorizationAuthorityCommandsTest.php tests/Unit/AuthorizationRelationshipCommandsTest.php tests/Unit/AuthorizationManagerTest.php tests/Unit/AuthorizationManagerDatabaseRelationshipTest.php tests/Unit/AuthorizationContextFactoryRuntimeContextTest.php tests/Unit/AuthorityModelAndRepositoryTest.php` → **84 tests / 305 assertions, exit 0 con 2 deprecations no bloqueantes**
+- `vendor\bin\phpunit tests/Unit/DatabaseRelationshipRepositoryTest.php tests/Unit/DatabaseAuthorityRepositoryTest.php tests/Unit/AuthorizationServiceProviderDatabaseAuthorityTest.php tests/Unit/AuthorizationServiceProviderDatabaseRelationshipTest.php` → **12 tests / 38 assertions, exit 0 con 2 deprecations no bloqueantes** (suite DB pesada, ejecutada en aislamiento para evitar “premature end of process” por mezcla con suites muy grandes del mismo proceso PHPUnit, sin relación con este corte)
+
+**Gap restante para cerrar DV-AUTHZ-010H**
+
+- backend remoto nativo multi-node real (Redis/equivalente distribuido fuerte) como driver built-in,
+- adapters remotos concretos para `authority` y `relationships` sobre `AuthorizationDriverRegistry`,
+- y propagación distribuida real de razones/contadores (hoy el proceso acumula contadores en memoria; un backend compartido debe persistirlos cross-node).
 
 Foco:
 
 - `12`, `13`, `19`, `20`, `23`, `27`, `29`, `31`
+
+### Cuarto avance parcial sobre DV-AUTHZ-010H
+
+`Providers Remotos Y Consistencia Distribuida Real`
+
+**Objetivo parcial ejecutado:** Cerrar los tres gaps pendientes del tercer corte: (1) backend distribuido nativo multi-nodo equivalente a Redis via `CacheVersionAuthority` sobre stores que soportan incremento atómico (CAS-like), (2) adapters remotos concretos para authority y relationships sobre `AuthorizationDriverRegistry` con provider público de bootstrap, y (3) persistencia distribuida de metadatos de auditoría (`bump_counter`, `last_reason`, `last_bump_at`) en los envelopes compartidos file/cache (dejaron de ser solo in-process).
+
+**Alcance ejecutado**
+
+1. Nueva interface `Quantum\Cache\Contracts\AtomicIncrementableStoreInterface extends StoreInterface` con `incrementInt(key, step, initial, ttl)` — semántica CAS-like sobre backends compartidos,
+2. `MemoryStore` implementa `AtomicIncrementableStoreInterface` (backing in-process); `FileStore` también la implementa con `LOCK_EX` de sistema operativo sobre archivo `.lock` adyacente (equivalente local de CAS distribuido para deploy single-host, utilizable en testing y staging),
+3. `CacheVersionAuthority.ENVELOPE_VERSION = 2`, nuevo `?string $reason = null` en `bump()`, y ruta `bumpAtomically()` sobre `.ctr` counter cuando el store es `AtomicIncrementableStoreInterface`; migra on-the-fly desde schema `ENVELOPE_VERSION=1` preservando la versión y derivando `bump_counter = version - 1`,
+4. `FileVersionAuthority.ENVELOPE_VERSION = 2`, mismo shape de envelope distribuido (`envelope`, `scope`, `version`, `updated_at`, `bump_counter`, `last_reason`, `last_bump_at`) con upgrade on-the-fly desde schema legacy,
+5. `CacheVersionAuthority::readEnvelope(scope)` y `FileVersionAuthority::readEnvelope(scope)` como surface pública estable para commands doctor/report,
+6. `VersionedAuthorizationConsistency::bumpSegment()` discrimina authority File/Cache para pasar `$reason` al `bump()` subyacente, y añade helper privado `readSharedEnvelope()` que proyecta `bump_counter / last_reason / last_bump_at` desde el envelope compartido cross-node sobre los mapas in-process,
+7. Repositorios administrativos (InMemory y Database, authority y relationships) enhebran `reason` automáticos (`authority.grant_role`, `authority.grant_permission`, `authority.revoke_*`, `relationships.revoke`, etc.) en cada invalidación,
+8. `RemoteCacheAuthorityRepository` implementa `AuthorityRepositoryInterface` + `AuthorityAdministrationInterface` sobre store compartido: guarda envelopes por (principal, scope), mantiene índice por principal + registry global, y produce `effectivePermissionsForPrincipal / hasRole / hasPermission / listGrants / scopesForPrincipal`,
+9. `RemoteCacheRelationshipRepository` implementa `RelationshipRepositoryInterface` + `RelationshipAdministrationInterface` sobre store compartido: `assignRelationship`, `relationshipsOf`, `hasRelationship`, `revokeRelationships`, `storeRelationship` (para seedings/scripts),
+10. `AuthorizationRemoteCacheDriverProvider::register($app, $options)` registra en `AuthorizationDriverRegistry` el driver `remote-cache` para consistency, authority y relationships con claves de configuración separadas (`prefix`, `consistency_prefix`, `store` opcional).
+
+**Evidencia — archivos creados**
+
+- `vendor/voltstack/framework/src/Quantum/Cache/Contracts/AtomicIncrementableStoreInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/RemoteCacheAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/RemoteCacheRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationRemoteCacheDriverProvider.php`
+- `vendor/voltstack/framework/tests/Unit/SharedVersionEnvelopeAndAtomicIncrementTest.php`
+- `vendor/voltstack/framework/tests/Unit/RemoteCacheAuthorityRepositoryTest.php`
+- `vendor/voltstack/framework/tests/Unit/RemoteCacheRelationshipRepositoryTest.php`
+- `vendor/voltstack/framework/tests/Unit/AuthorizationRemoteCacheDriverProviderTest.php`
+
+**Evidencia — archivos modificados**
+
+- `vendor/voltstack/framework/src/Quantum/Cache/MemoryStore.php`
+- `vendor/voltstack/framework/src/Quantum/Cache/FileStore.php`
+- `vendor/voltstack/framework/src/Quantum/Cache/CacheVersionAuthority.php`
+- `vendor/voltstack/framework/src/Quantum/Cache/FileVersionAuthority.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Consistency/VersionedAuthorizationConsistency.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/InMemoryAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DatabaseAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/InMemoryRelationshipRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Relationship/DatabaseRelationshipRepository.php`
+
+**Validacion ejecutada**
+
+- Suite tests nuevos del cuarto corte (11 tests): `SharedVersionEnvelopeAndAtomicIncrementTest`, `RemoteCacheAuthorityRepositoryTest`, `RemoteCacheRelationshipRepositoryTest`, `AuthorizationRemoteCacheDriverProviderTest` → **11 tests / 86 assertions, exit 0 con 1 PHPUnit notice no bloqueante**
+- Bloque 1 de regresión (50 tests originales + 11 nuevos = 61 tests total): `CacheVersionAuthorityTest`, `FileVersionAuthorityTest`, `AuthorizationServiceProviderTest`, `AuthorizationServiceProviderBridgeAndFlagsTest`, `AuthorizationPublishedConfigGateTest`, `AuthorizationConsistencyVersioningTest`, `AuthorizationConsistencyReportCommandTest`, `AuthorizationConsistencyInvalidateCommandTest`, `AuthorizationConsistencyDoctorCommandTest` + 4 suites nuevas arriba → **61 tests / 270 assertions, exit 0 con 2 deprecations / 1 notice no bloqueantes**
+- Bloque 2 de regresión (surfaces administrativas + memoization + manager): `AuthorizationConsistencyReportCommandTest`, `AuthorizationConsistencyInvalidateCommandTest`, `AuthorizationConsistencyVersioningTest`, `AuthorizationConsistencyDoctorCommandTest`, `AuthorityMemoizationAndCacheTest`, `AuthorizationManagerAuthorityEarlyGateTest`, `AuthorizationMultiSurfaceIntegrationTest`, `AuthorizationAuthorityCommandsTest`, `AuthorizationRelationshipCommandsTest`, `AuthorizationManagerTest`, `AuthorizationManagerDatabaseRelationshipTest`, `AuthorizationContextFactoryRuntimeContextTest`, `AuthorityModelAndRepositoryTest` → **84 tests / 305 assertions, exit 0 con 2 deprecations no bloqueantes**
+- Bloque 3 DB (aislado por teardown pesado): `DatabaseRelationshipRepositoryTest`, `DatabaseAuthorityRepositoryTest`, `AuthorizationServiceProviderDatabaseAuthorityTest`, `AuthorizationServiceProviderDatabaseRelationshipTest` → **12 tests / 38 assertions, exit 0 con 2 deprecations no bloqueantes**
+
+**Gap restante (prioridad MEDIUM, después de cerrado 010H)**
+
+- Extender `AtomicIncrementableStoreInterface` a adaptadores externos no built-in (Memcached, Redis real beyond Predis/phpredis custom),
+- Thread explícito `--reason` desde los comandos CLI `authz:authority:*` y `authz:relationships:*` hacia las interfaces administrativas (hoy los reasons son strings fijos dentro de cada repo),
+- Documentar el orden óptimo de suites PHPUnit (DB pesadas aisladas del resto).
+
+**Siguiente fase natural: `DV-AUTHZ-010I = Delegation / Impersonation + Service-to-Service Principals`**
+
+Foco:
+
+- `14`, `15`, `16`, `21`, `22`, `24`, `25`, `26`
+
+## Corte ejecutado
+
+### DV-AUTHZ-010I
+
+**Tipo:** Delegation / Impersonation + Service-to-Service Principals  
+**Estado:** Cerrado  
+**Fecha:** `2026-10-10`  
+**Objetivo:** Introducir una capa opt-in de delegación de permisos entre principals (trustee ↔ grantor), soporte de impersonation (originator → target) con contexto explícito, resolución de principals Service-to-Service configurables sin fuga de identidad de usuario humano, y proyección de contexto delegation/impersonation al pipeline de decisión de authorization.
+
+**Documentos impactados**
+
+- `DEVELOPMENT_GUIDELINES.md`
+- `DEVELOPMENT_MATRIX.md`
+- `DEVELOPMENT_VERSIONS.md`
+- `EXECUTIVE_PLAN_IMPLEMENTATION.md`
+
+**Alcance ejecutado en este corte**
+
+1. **Contracts y Value Objects de Delegation:**
+   - `DelegationAdministrationInterface` con `listDelegations/grantDelegation/revokeDelegation` (filters por trustee_id, grantor_id, scope, type, value).
+   - `ServicePrincipalResolverInterface` como punto de extensión para resolver principals de tipo Service/ApiClient sin depender de capa Auth HTTP.
+   - `DelegationGrant` VO readonly con `trusteeId/grantorId/scope/grantType/grantValue/grantedAt`, `toArray()` y `JsonSerializable`.
+2. **Impersonation runtime:**
+   - `AuthorizationManagerInterface::impersonate(caller,target,?Scope)` añadido como 3er binding helper al final de la interfaz (compat 100% legacy).
+   - `ImpersonationPrincipalBuilder` build de `ImpersonatedUser` soporta duck-typing: id() getter, propiedad pública `id`, `PrincipalInterface`, string/int.
+   - `BoundAuthorization` añade 3er parámetro opcional `?AuthorizationContext $context = null` + helper `mergeContext(?A,?A)` con merge de atributos `context.bind ∪ context.explicit`. Los 4 métodos públicos `check/cannot/decide/authorize` aplican el merge transparente, sin impacto para usuarios de la API legacy 2-args.
+3. **Delegation repositories + manifest fallback semántico:**
+   - `InMemoryAuthorityRepository` y `DatabaseAuthorityRepository` implementan `DelegationAdministrationInterface` (key única 5-column: `trustee#grantor#scope#type#value`).
+   - `DatabaseAuthorityRepository` tabla configurable: `authorization.tables.delegation_grants` (default `authorization_delegation_grants`) con `trustee_id, grantor_id, scope, grant_type, grant_value, granted_at, UNIQ(5cols)`.
+   - `ManifestRequirementsEnforcementStage` nuevo: params `?DelegationAdministrationInterface`, `evaluateDelegations=false`. Detecta impersonation (principal tipo `ImpersonatedUser` + `authorization.impersonation.originator_id/target_id`). **Orden estricto fail-closed:**
+     1. `hasPermission(targetId, perm, scope)` directo → si TRUE, ALLOW sin delegation.
+     2. SOLO si está en impersonation Y falló el permiso propio del target → check delegation grants:
+        - `listDelegations(trustee, grantor, scope)` → match explícito por permission name.
+        - **Regla semántica principal:** si existe vínculo trustee-grantor, consultar `authorityRepository->hasPermission($grantorId, $perm, $scope)` → grantor lo tiene → ALLOW con metadata delegation.
+        - Fallback último: role expansion si Role ctor trae permisos.
+   - Metadata en ALLOW por delegation: `delegation_granted, delegation_trustee_id, delegation_grantor_id, originator_principal_id, target_principal_id, impersonation_scope`.
+4. **Service Principal resolver + wire:**
+   - `ConfigurableServicePrincipalResolver` orden resolución: runtime flag `as/as_service` → request attribute `service_principal.as` → query param `as-service` → SERVER `VOLT_AS_SERVICE` → runtime metadata `service_principal.id/type/claims` → config map `authorization.service_principals.map.<id>`. Claims finales: `config ∪ runtime.metadata` (runtime gana).
+   - `PrincipalResolver` nuevos params: `?ServicePrincipalResolverInterface`, `enabled=false` (default off = fail-closed). Bloque previo a Anonymous: si flag enabled + resolver not null → intenta resolve; catch todo falla cerrada (no romper).
+5. **DelegationContextEnricher:** proyecta atributos `authorization.originator.id/type`, `authorization.target.id/type`, `authorization.impersonation.active/originator_id/target_id/scope`, `authorization.service.id/type/claims/resolved_via` cuando corresponde, al final del pipeline de enrichers (solo si delegation o service_principal están habilitados).
+6. **CLI delegation commands + authority --view=delegations + consistency bumps report/doctor:**
+   - Nuevos: `authz:delegation:list` (filtros trustee/grantor/scope/type, JSON/simple, paged).
+   - Nuevos: `authz:delegation:grant` + `authz:delegation:revoke` (trustee/grantor/scope + role|permission, verbose, dry-run, `--require-published-config` pattern estándar).
+   - `authz:authority:list` nuevo `--view=simple|delegations|all` (simple default), `--grantor-id` filter.
+   - `authz:consistency:report` y `authz:consistency:doctor` JSON y humano incluyen `delegation_bumps` y `service_principal_bumps` (contando reasons con prefijo `delegation.` y `service.`).
+   - Mutaciones administrativas delegation emiten consistency reason `delegation.grant` / `delegation.revoke`.
+7. **ServiceProvider wiring (incremental, todo off):**
+   - defaults fusiona: `delegation.enabled=false`, `service_principal_resolver.enabled=false`, `service_principals.map=[]`, `authority.evaluate_delegations=false`.
+   - `registerDelegationAndServicePrincipalBindings()` condicional si `delegationOrServicePrincipalEnabled($app)` (OR). Binda `DelegationAdministrationInterface` a la misma instancia del repositorio authority (no wrapper memoized, mismo inner que AuthorityAdmin). Binda `ServicePrincipalResolverInterface` singleton → `ConfigurableServicePrincipalResolver(config map)`.
+   - `ManifestRequirementsEnforcementStage` recibe `evaluateDelegations = explicit_flag || (delegation.enabled=true)` (inference rule).
+   - `AuthorizationPlanner` enrichers array condicionalmente agrega `DelegationContextEnricher::class` al final (try/catch, solo si flags ON).
+   - Stage order preservation estricto: `[AdaptiveAccessStage, ManifestRequirements, Gate, Policy]` (4 stages = backward compat 100%).
+   - `commands()` → 13 comandos (10 anteriores + Delegation[List|Grant|Revoke]).
+
+**Evidencia — archivos NUEVOS**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/DelegationAdministrationInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/ServicePrincipalResolverInterface.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DelegationGrant.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/ImpersonationPrincipalBuilder.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/ServicePrincipal/ConfigurableServicePrincipalResolver.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Enrichers/DelegationContextEnricher.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationDelegationListCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationDelegationGrantCommand.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationDelegationRevokeCommand.php`
+- `tests/Unit/AuthorizationDelegationContractsTest.php`
+- `tests/Unit/AuthorizationImpersonationTest.php`
+- `tests/Unit/AuthorizationDelegationRuntimeTest.php`
+- `tests/Unit/AuthorizationDelegationConsistencyTest.php`
+- `tests/Unit/AuthorizationServicePrincipalTest.php`
+- `tests/Unit/AuthorizationDelegationCommandsTest.php`
+- `tests/Unit/AuthorizationManagerImpersonationAndServiceTest.php`
+- `tests/Feature/AuthorizationDelegationIntegrationTest.php`
+
+**Evidencia — archivos MODIFICADOS (subset relevante)**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationManagerInterface.php` (+ `impersonate` al final)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/AuthorizationManager.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/BoundAuthorization.php` (3er param opcional + mergeContext)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/InMemoryAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DatabaseAuthorityRepository.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/ManifestRequirementsEnforcementStage.php` (delegation fallback semantic con authority lookup)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Principal/PrincipalResolver.php` (service resolver integration fail-closed)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationAuthorityListCommand.php` (--view=, --grantor-id)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyReportCommand.php` (delegation/service bumps)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyDoctorCommand.php` (delegation/service bumps)
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php` (wiring delegation, s2s, inference, planner enricher)
+
+**Resultado operativo**
+
+1. Impersonation funciona con APIs públicas nuevas y semántica legacy transparente: `$manager->impersonate($orig, $target, $scope)->check('perm')`.
+2. Delegation grants se otorgan/revocan/listan desde CLI (drivers memory/database/remote-cache implementando la interfaz).
+3. Fallback delegation semánticamente correcto: "el trustee NO tenía permiso propio PERO el vínculo trustee↔grantor existe Y el grantor SÍ tiene el permiso" → ALLOW con metadata trazable. Fail-closed SIEMPRE: sin impersonation, sin vinculo, o sin permiso del grantor → NO pasa.
+4. Service Principals se resuelven sin fuga de identidad de usuario: resolución en runtime request attribute / query / server / metadata / config. Defaults off por surface.
+5. Consistency tracing ahora distingue authority.grant/revoke de delegation.grant/revoke y service.* bumps; report y doctor lo muestran en JSON y humano.
+6. Cero breaking changes: ninguna API pública preexistente se rompió (Bound 3rd param opcional, ManagerInterface `impersonate()` añadido al final, stage order intacto, bindings opcionales).
+
+**Validacion ejecutada (Task 9)**
+
+- `.\vendor\bin\phpunit.bat --filter=Authorization` → **191 tests, 653 assertions, exit 0**.
+- Tests nuevos Task 9 (8 archivos): **passing** (incluyen impersonation, delegation runtime direct + manifest stage fallback semántico, consistency bumps delegation/service, CLI commands 7 tests, contracts grant/revoke/idempotency, service principal resolver con Request y RuntimeContext, provider wiring resolución DelegationAdmin + S2S Resolver, integration end-to-end impersonation → delegation allow).
+- Riesgo 1 risky test preexistente (`ExceptionHandlingTest`) no relacionado al corte.
+
+**Siguiente corte recomendado: DV-AUTHZ-010K = Shadow delegation grants + revocation policy engine + selective flush cross-worker**
+
+## Corte ejecutado
+
+### DV-AUTHZ-010J
+
+**Tipo:** Adaptive Access tenant/canal/operación + Delegation TTL + Selective Flush  
+**Estado:** Cerrado  
+**Fecha:** `2026-10-10`  
+**Objetivo:** Enriquecer `AdaptiveAccessStage` con políticas adaptativas por dimensión (tenant/canal/operación) y umbral `allow_threshold` de corte temprano, añadir TTL/expiry a grants de delegación con filtrado automático de grants expirados en runtime, exponer `revokeAllDelegations` para revocación masiva con consistency bump, y añadir `flushMetrics` observabilidad al backend de consistencia + comando `authz:consistency:invalidate --dry-run`.
+
+**Documentos impactados**
+
+- `DEVELOPMENT_GUIDELINES.md`
+- `DEVELOPMENT_MATRIX.md`
+- `DEVELOPMENT_VERSIONS.md`
+- `EXECUTIVE_PLAN_IMPLEMENTATION.md`
+
+**Alcance ejecutado en este corte**
+
+1. **Adaptive Access por dimensiones + allow_threshold:**
+   - `AdaptiveAccessStage` ahora soporta `policies` indexadas por dimensión (`tenant:<id>`, `canal:<canal>`, `operation:<ability>`) con overrides de `deny_threshold`, `step_up_threshold`, `allow_threshold`.
+   - Resolución de política: operation > canal > tenant > global fallback. Si no hay policy para la dimensión, usa los thresholds globales del config.
+   - Nuevo `allow_threshold`: si `risk_score <= allow_threshold` → ALLOW directo (corte temprano), sin pasar por los demás stages.
+   - Nuevo `AdaptiveAccessRuntimeConfig` (scoped) permite overrides runtime de thresholds (para CLI `authz:adaptive:tune`).
+2. **Delegation TTL / Expiry:**
+   - `DelegationGrant` VO ahora incluye `expiresAt` (?string) y `toArray()` expone `expires_at`.
+   - `DelegationAdministrationInterface::grantDelegation` gana parámetro opcional `?string $expiresAt = null` (backward compat).
+   - Repositorios (`InMemoryAuthorityRepository`, `DatabaseAuthorityRepository`) normalizan `expiresAt` (ISO 8601 o strtotime relative) y lo persisten.
+   - `listDelegations` filtra grants expirados por defecto; flag `include_expired=true` los devuelve.
+   - `ManifestRequirementsEnforcementStage::delegationGrantsPermission()` tiene defensa en profundidad: salta grants con `expires_at <= now` incluso si el repo no los filtró.
+3. **revokeAllDelegations:**
+   - `DelegationAdministrationInterface::revokeAllDelegations(?trusteeId, ?grantorId, ?scope): int` revoca todos los grants que coincidan con los filtros. Al menos uno de trusteeId/grantorId obligatorio; ambos null = no-op (retorna 0).
+   - Emite consistency bump único con reason `delegation.revoke_all` (no múltiple por grant).
+4. **flushMetrics + CLI --dry-run:**
+   - `AuthorizationConsistencyInterface::flushMetrics(): array` devuelve métricas por segmento (`authority.global`, `authority.principal`, `authority.scope`, `authority.principal_scope`, `relationships.*`, `delegation.*`) con `version`, `bump_counter`, `last_bump_at`, `last_reason`, más `total_bumps`.
+   - `authz:consistency:invalidate` ahora soporta `--dry-run`: muestra qué segmentos se invalidarían sin mutar estado.
+5. **CLI `authz:adaptive:tune`:**
+   - Comando nuevo: modo default read-only emite JSON con `enabled`, thresholds, `policies_count`, `policies` (keys), `runtime_overrides`, `tune_enabled`, `applied`.
+   - Modo `--apply` requiere `adaptive.tune.enabled=true` (exit 1 si off); aplica overrides a `AdaptiveAccessRuntimeConfig` scoped.
+   - Sigue el patrón `--require-published-config` estándar.
+6. **ServiceProvider wiring (incremental, todo opt-in):**
+   - defaults fusiona: `adaptive_access.policies=[]`, `adaptive_access.allow_threshold=null`, `adaptive.tune.enabled=false`, `delegation.default_ttl_seconds=null`.
+   - Binding `AdaptiveAccessRuntimeConfig::class` scoped.
+   - `AdaptiveAccessStage` inyecta `policies`, `allowThreshold`, `runtimeConfig`.
+   - `commands()` ahora tiene 14 comandos (+`AuthorizationAdaptiveTuneCommand`).
+
+**Evidencia — archivos NUEVOS**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/AdaptiveAccessRuntimeConfig.php`
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationAdaptiveTuneCommand.php`
+- `tests/Unit/AuthorizationAdaptiveDimensionsTest.php`
+- `tests/Unit/AuthorizationDelegationTtlTest.php`
+- `tests/Unit/AuthorizationDelegationTtlRuntimeTest.php`
+- `tests/Unit/AuthorizationDelegationRevokeAllTest.php`
+- `tests/Unit/AuthorizationConsistencyFlushMetricsTest.php`
+- `tests/Unit/AuthorizationAdaptiveTuneCommandTest.php`
+- `tests/Feature/AuthorizationAdaptiveAndTtlIntegrationTest.php`
+
+**Evidencia — archivos MODIFICADOS (subset relevante)**
+
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/AdaptiveAccessStage.php` (dimensiones + allow_threshold + runtime config)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DelegationGrant.php` (expiresAt)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/DelegationAdministrationInterface.php` (grantDelegation $expiresAt, revokeAllDelegations)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/InMemoryAuthorityRepository.php` (expiry + revokeAll)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Authority/DatabaseAuthorityRepository.php` (expiry + revokeAll)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Core/Stages/ManifestRequirementsEnforcementStage.php` (skip expired grants defense)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Contracts/AuthorizationConsistencyInterface.php` (flushMetrics)
+- `vendor/voltstack/framework/src/Quantum/Authorization/Console/Commands/AuthorizationConsistencyInvalidateCommand.php` (--dry-run)
+- `vendor/voltstack/framework/src/Quantum/Authorization/AuthorizationServiceProvider.php` (wiring adaptive tune + delegation ttl defaults)
+
+**Resultado operativo**
+
+1. Adaptive Access ahora puede tunearse por tenant/canal/operación sin tocar código: un `operation:sales.invoices.issue` con `deny_threshold=30` deniega aunque el global sea 80.
+2. `allow_threshold` permite ALLOW rápido para señales de bajo riesgo sin evaluar authority/delegation.
+3. Grants de delegación con `expiresAt` expiran automáticamente: `listDelegations` los omite y el stage los salta por defensa en profundidad.
+4. `revokeAllDelegations` limpia grants masivamente con un solo consistency bump (`delegation.revoke_all`).
+5. `flushMetrics` da observabilidad del estado de consistencia sin mutar nada; `--dry-run` en invalidate permite auditar antes de ejecutar.
+6. CLI `authz:adaptive:tune` inspecciona y ajusta thresholds en runtime (modo `--apply` requiere flag `adaptive.tune.enabled`).
+7. Todo opt-in: `adaptive_access.enabled=false`, `adaptive.tune.enabled=false`, `delegation.default_ttl_seconds=null`. Cero breaking changes.
+
+**Validacion ejecutada**
+
+- `.\vendor\bin\phpunit.bat --filter=Authorization` → **218 tests, 733 assertions, exit 0** (1 risky test preexistente `ExceptionHandlingTest` no relacionado).
+
+**Siguiente corte recomendado: DV-AUTHZ-010K = Shadow delegation grants + revocation policy engine + selective flush cross-worker**
 
 ## Regla de mantenimiento
 

@@ -196,7 +196,9 @@ Quantum/Authorization
 - Fase 4: completada en version minima
 - Fase 5: completada en version inicial conectada
 - Fase 6: completada en version V1+ consolidada
-- Fase 7: siguiente foco ejecutivo
+- Fase 7: completada (DV-AUTHZ-010A/B/C/D/E/F/G/H — drivers DB, tooling, tenancy, ReBAC DBAL, adaptive access base, drivers remote cache, consistency distribuido con envelope audit compartido)
+- Fase 8: completada (DV-AUTHZ-010I — Delegation/Impersonation + S2S Principals)
+- Fase 9: completada (DV-AUTHZ-010J — Adaptive Access tenant/canal/operación + Delegation TTL + Selective Flush)
 
 ## Fases ejecutivas
 
@@ -494,11 +496,75 @@ Resultado esperado:
 - **Cierre DV-AUTHZ-010D** (consistencia e invalidación generacional inicial),
 - suite del subsistema ampliada sobre la base actual sin romper el comportamiento opt-in.
 
+## Fase 8 - Delegation + Service Principals (010I)
+
+### Objetivo
+
+Introducir una capa opt-in completa de Delegation / Impersonation + Service-to-Service Principals, alineada con `Doc 20 - Authorization Delegation Impersonation Capabilities And Service To Service System`.
+
+### Entregables
+
+1. **Contracts y VOs de Delegation:**
+   - `DelegationAdministrationInterface` (`listDelegations`, `grantDelegation`, `revokeDelegation`)
+   - `ServicePrincipalResolverInterface` (`resolve(?RuntimeContext, ?Request): ?PrincipalInterface`)
+   - `DelegationGrant` VO readonly con shape `{trustee_id, grantor_id, scope, grant_type, grant_value, granted_at}`.
+2. **Impersonation runtime + 3er param BoundAuthorization opcional:**
+   - `AuthorizationManagerInterface::impersonate(caller, target, ?Scope)` como nuevo helper (sin romper API legacy),
+   - `ImpersonationPrincipalBuilder` con duck-typing `getId()` / `id` property / `PrincipalInterface` / string/int,
+   - `BoundAuthorization` tercer parámetro opcional `?AuthorizationContext $context = null` y helper `mergeContext(A?, A?)` aplicado en los 4 métodos `check/cannot/decide/authorize` (backward compat 100%).
+3. **Delegation administration en repos InMemory y Database:**
+   - `InMemoryAuthorityRepository` y `DatabaseAuthorityRepository` implementan `DelegationAdministrationInterface`,
+   - key única 5-column `trustee#grantor#scope#type#value`,
+   - `DatabaseAuthorityRepository` tabla configurable `authorization.tables.delegation_grants` default `authorization_delegation_grants`.
+4. **Fallback delegation semántico en Manifest stage:**
+   - Nuevos params `ManifestRequirementsEnforcementStage::__construct(?DelegationAdministrationInterface, bool evaluateDelegations=false)`,
+   - Helper `impersonationContext()` detecta Principal tipo `ImpersonatedUser` y lee `authorization.impersonation.originator_id/target_id`,
+   - **Orden fail-closed estricto:**
+     1. hasPermission directo con principal target → si TRUE, ALLOW sin delegation.
+     2. Solo si está en impersonation Y el target NO tenía permiso → check delegation:
+        - listar grants trustee↔grantor en scope
+        - match explícito por nombre de permission
+        - **REGLA SEMÁNTICA PRINCIPAL:** authority lookup `hasPermission($grantorId, $permission, $scope)` si grantor lo tiene → ALLOW con metadata delegation
+        - último fallback role expansion (solo si Role ctor trae permisos).
+   - Metadata inyectada en ALLOW: `delegation_granted, delegation_trustee_id, delegation_grantor_id, originator_principal_id, target_principal_id, impersonation_scope`.
+5. **Service Principal resolver + wiring fail-closed:**
+   - `ConfigurableServicePrincipalResolver` orden resolución: runtime `as/as_service` flag → req attr `service_principal.as` → query param `as-service` → SERVER `VOLT_AS_SERVICE` → runtime `service_principal.id/type/claims` → config map `authorization.service_principals.map.<id>`. Final claims: `config ∪ runtime` (runtime wins).
+   - `PrincipalResolver` nuevos params: `?ServicePrincipalResolverInterface`, `enabled=false` (default off = fail-closed). Antes del bloque Anonymous: si enabled + resolver not null → intenta resolve; catch todo → falla cerrada.
+6. **DelegationContextEnricher:** proyecta `authorization.originator.* / target.* / impersonation.* / service.*` al pipeline de enrichers (solo si delegation o service_principal están habilitados).
+7. **Tooling CLI:**
+   - `authz:delegation:list|grant|revoke` (--trustee-id, --grantor-id, --scope, --role|--permission, --verbose, --dry-run, --require-published-config pattern standard)
+   - `authz:authority:list --view=simple|delegations|all --grantor-id` (simple por defecto)
+   - `authz:consistency:report` / `authz:consistency:doctor` → JSON y humano ahora incluyen `delegation_bumps` y `service_principal_bumps` (contando reasons `delegation.*` y `service.*`)
+   - Mutaciones administrativas delegation: `invalidateAuthority(..., reason='delegation.grant' | 'delegation.revoke')` (consistency bump tracking).
+8. **ServiceProvider wiring (todo opt-in default off):**
+   - defaults fusiona: `delegation.enabled=false`, `service_principal_resolver.enabled=false`, `service_principals.map=[]`, `authority.evaluate_delegations=false`.
+   - `registerDelegationAndServicePrincipalBindings()` condicional si `delegation.enabled || service_principal_resolver.enabled` (OR).
+   - Binding `DelegationAdministrationInterface` al repositorio **inner authority** (INNER_AUTHORITY_REPOSITORY, no el wrapper memoized cached).
+   - Binding `ServicePrincipalResolverInterface` singleton a `ConfigurableServicePrincipalResolver(map)`.
+   - `Manifest stage`: `evaluateDelegations = explicit_flag || delegation.enabled` (inference rule: si delegation on, evaluate on).
+   - `AuthorizationPlanner`: enrichers condicionalmente agrega `DelegationContextEnricher::class` al final (try/catch safe).
+   - **Stage order preservado estrictamente:** `[AdaptiveAccessStage, ManifestRequirementsEnforcementStage, GateAuthorizationStage, PolicyAuthorizationStage]` (4 stages = backward compat 100%).
+   - `commands()`: 13 comandos (10 anteriores + DelegationList/Grant/Revoke).
+
+### Criterio de cierre
+
+1. `--filter=Authorization` exit=0,
+2. 8 archivos tests nuevos (Contracts, Impersonation, Runtime con fallback delegation semántico, Consistency bumps delegation/service, ServicePrincipal resolver en runtime y request, CLI commands 7 tests, Manager impersonate + S2S, Integration end-to-end) todos pasando,
+3. contracts `DelegationAdministrationInterface` y `ServicePrincipalResolverInterface` resolveables desde el container cuando los flags están ON,
+4. metadata de ALLOW bajo impersonation + delegation incluye `delegation_granted=true` y trazabilidad `trustee_id`/`grantor_id`,
+5. Docs DEVELOPMENT sincronizados con el bloque entregado.
+
+### Evidencia
+
+- exit=0 de `phpunit --filter=Authorization` con **191 tests / 653 assertions en verde** (1 risky test pre-existente de ExceptionHandling sin relación al bloque).
+- 8 archivos tests nuevos Task 9 del spec todos en verde.
+- 4 archivos DEVELOPMENT sincronizados (Versions, Matrix, Guidelines, Executive Plan).
+
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-010E
+### DV-AUTHZ-010J
 
-`Backend Externo De Consistencia Y Auditoria Operativa Enriquecida`
+`Políticas adaptativas tenant/canal/operación + AdaptiveAccessStage rico`
 
 ## Mapa de clases prioritarias
 
@@ -580,27 +646,30 @@ Una fase se considera realmente cerrada solo si:
 
 ## Siguiente corte recomendado
 
-### DV-AUTHZ-010E
+### DV-AUTHZ-010J
 
 Alcance sugerido:
 
-- backend externo multi-worker para `AuthorizationConsistencyInterface`,
-- tooling de auditoría/revocación,
-- y providers externos adicionales.
+- ampliar `AdaptiveAccessStage` con políticas adaptativas parametrizadas por tenant/canal/operación: step-up auth explícito, deny por threshold de riesgo por principal/recurso/hora, rate-limit granular por principal y combinación tenant×action,
+- uniformar tenancy automática + service-to-service en superficies CLI/Jobs/Workers sin HTTP RouteMatch,
+- añadir shadow-admin delegation grants temporales con expiry/ttl y revoked-at programático,
+- selective flush distribuido observable por principal/scope sobre el backend cache compartido real con métricas de hit/miss cross-worker,
+- comandos doctor de adaptive tuning, métricas de evaluación por stage, overrides por tenant y tiempos de evaluación.
 
 Estado del corte:
 
-- planner, authority, explainability, memoization versionada, ABAC declarativo, tenancy cross-surface inicial y ReBAC opt-in con driver persistente inicial y tooling operativo básico ya están operativos,
-- el siguiente trabajo debe endurecer el módulo para despliegues multi-tenant y multi-worker reales.
+- `DV-AUTHZ-010I` (Delegation/Impersonation + S2S Principals) **CERRADO** → Doc 20 Operativo en DEVELOPMENT_MATRIX,
+- planner, authority, explainability, memoization versionada distribuida, ReBAC DBAL y remote-cache, ABAC declarativo, tenancy cross-surface inicial, tooling CLI administrativo completo (manifest/authority/relationships/delegation/consistency report+doctor), consistency distribuido con envelope audit compartido file/cache, Delegation + impersonation + S2S Principals ya están operativos todo opt-in con defaults off y 191 tests 653 assertions exit 0 en el corte 010I,
+- siguiente foco natural = ampliar AdaptiveAccessStage hacia políticas adaptativas ricas por tenant/canal/operación y endurecer tenancy en superficies sin HTTP.
 
 Entregables minimos:
 
-1. backend externo de invalidación/versionado,
- 2. strategy de selective flush por scope o principal sobre el backend externo,
-3. auditoría/revocación operativa enriquecida,
-4. providers externos adicionales,
-5. cobertura de tests cross-worker/multi-surface.
+1. `AdaptiveAccessStage` con shape declarativo configurable: thresholds por tenant/canal/operación, stepUp/challenge/deny por combinado,
+2. uniformar tenant resolver automático uniforme en CLI/Jobs sin HTTP,
+3. delegation grants con expiry/ttl y workflow de revocación shadow-admin temporal,
+4. selective flush distribuido + métricas cross-worker sobre store cache,
+5. comandos adaptive-access:doctor y adaptive-access:tuning.
 
 Resultado esperado:
 
-- VoltStack pasa de una V1+ multi-tenant relacional consistente inicial a una base operativa multi-worker mas completa, manteniendo el enfoque opt-in y sin romper la base actual.
+- VoltStack Quantum/Authorization pasa de una base de motor + delegation + s2s a un motor adaptive-access completo con políticas adaptativas tenant-aware sin romper APIs públicas y manteniendo defaults off-by-default.
